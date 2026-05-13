@@ -23,6 +23,11 @@ type Config struct {
 	ClientID     string
 	ClientSecret string
 
+	RouteWorkerCount  int
+	SearchWorkerCount int
+	QueueMaxDepth     int
+	ResultTTLSeconds  int
+
 	RateLimitIPAuth        int
 	RateLimitIPPublic      int
 	RateLimitUserAPI       int
@@ -52,6 +57,11 @@ func Load() *Config {
 
 		ClientID:     env.Get("SWAYRIDER_API_CLIENT_ID", ""),
 		ClientSecret: env.Get("SWAYRIDER_API_CLIENT_SECRET", ""),
+
+		RouteWorkerCount:  env.GetAsInt("ROUTE_WORKER_COUNT", 5),
+		SearchWorkerCount: env.GetAsInt("SEARCH_WORKER_COUNT", 10),
+		QueueMaxDepth:     env.GetAsInt("QUEUE_MAX_DEPTH", 500),
+		ResultTTLSeconds:  env.GetAsInt("RESULT_TTL_SECONDS", 300),
 
 		RateLimitIPAuth:        env.GetAsInt("RATE_LIMIT_IP_AUTH", 10),
 		RateLimitIPPublic:      env.GetAsInt("RATE_LIMIT_IP_PUBLIC", 600),
