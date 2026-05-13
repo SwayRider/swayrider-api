@@ -25,6 +25,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/whoami", auth.WhoAmI)
 	mux.HandleFunc("GET /api/v1/auth/me", auth.Me)
 
+	// Route (async SSE)
+	mux.HandleFunc("POST /api/v1/route", s.route.Route)
+
+	// Search (async SSE)
+	mux.HandleFunc("POST /api/v1/search", s.search.Search)
+	mux.HandleFunc("POST /api/v1/search/reverse", s.search.ReverseGeocode)
+
 	// Region (all public)
 	region := s.region
 	mux.HandleFunc("POST /api/v1/region/search-point", region.SearchPoint)

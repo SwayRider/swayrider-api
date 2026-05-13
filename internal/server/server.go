@@ -22,6 +22,8 @@ type Server struct {
 	cfg      *config.Config
 	auth     *handlers.AuthHandler
 	region   *handlers.RegionHandler
+	route    *handlers.RouteHandler
+	search   *handlers.SearchHandler
 	tiles    http.Handler
 	web      http.Handler
 	keyCache *jwtkeys.Cache
@@ -33,6 +35,8 @@ func New(
 	cfg *config.Config,
 	auth *handlers.AuthHandler,
 	region *handlers.RegionHandler,
+	route *handlers.RouteHandler,
+	search *handlers.SearchHandler,
 	tiles http.Handler,
 	web http.Handler,
 	keyCache *jwtkeys.Cache,
@@ -43,6 +47,8 @@ func New(
 		cfg:      cfg,
 		auth:     auth,
 		region:   region,
+		route:    route,
+		search:   search,
 		tiles:    tiles,
 		web:      web,
 		keyCache: keyCache,
