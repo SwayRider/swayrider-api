@@ -21,4 +21,5 @@ FROM --platform=$TARGETPLATFORM debian:bookworm-slim
 WORKDIR /app
 COPY --from=builder /app/swayrider-api .
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-CMD ["./swayrider-api"]
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

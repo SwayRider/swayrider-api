@@ -7,8 +7,8 @@ require (
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/cors v1.11.1
 	github.com/sony/gobreaker v1.0.0
-	github.com/swayrider/grpcclients v0.1.1
-	github.com/swayrider/swlib v0.1.1
+	github.com/swayrider/grpcclients v0.1.2-0.20260513193630-fb9b503de3d0
+	github.com/swayrider/swlib v0.1.2-0.20260513190938-e9124987785d
 )
 
 require (
