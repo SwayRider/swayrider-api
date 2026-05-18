@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/swayrider/grpcclients/regionclient"
@@ -8,11 +9,11 @@ import (
 
 // RegionClient is satisfied by *regionclient.Client.
 type RegionClient interface {
-	SearchPoint(token string, location regionclient.Coordinate, includeExtended bool) (regionclient.RegionList, error)
-	SearchBox(token string, boundingBox regionclient.BoundingBox, includeExtended bool) (regionclient.RegionList, error)
-	SearchRadius(token string, location regionclient.Coordinate, radiusKm float64, includeExtended bool) (regionclient.RegionList, error)
-	FindCrossingLocations(token string, fromRegion, toRegion string, fromLoc, toLoc regionclient.Coordinate, cfg regionclient.BorderCrossingConfig, limit int) ([]regionclient.BorderCrossing, error)
-	FindRegionPath(token string, fromRegion, toRegion string) ([]string, error)
+	SearchPoint(ctx context.Context, token string, location regionclient.Coordinate, includeExtended bool) (regionclient.RegionList, error)
+	SearchBox(ctx context.Context, token string, boundingBox regionclient.BoundingBox, includeExtended bool) (regionclient.RegionList, error)
+	SearchRadius(ctx context.Context, token string, location regionclient.Coordinate, radiusKm float64, includeExtended bool) (regionclient.RegionList, error)
+	FindCrossingLocations(ctx context.Context, token string, fromRegion, toRegion string, fromLoc, toLoc regionclient.Coordinate, cfg regionclient.BorderCrossingConfig, limit int) ([]regionclient.BorderCrossing, error)
+	FindRegionPath(ctx context.Context, token string, fromRegion, toRegion string) ([]string, error)
 }
 
 type RegionHandler struct {
@@ -36,6 +37,7 @@ func (h *RegionHandler) SearchPoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.client.SearchPoint(
+		r.Context(),
 		h.token(),
 		regionclient.Coordinate{Latitude: req.Location.Lat, Longitude: req.Location.Lon},
 		req.IncludeExtended,
@@ -65,6 +67,7 @@ func (h *RegionHandler) SearchBox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.client.SearchBox(
+		r.Context(),
 		h.token(),
 		regionclient.BoundingBox{
 			BottomLeft: regionclient.Coordinate{Latitude: req.Box.BottomLeft.Lat, Longitude: req.Box.BottomLeft.Lon},
@@ -92,6 +95,7 @@ func (h *RegionHandler) SearchRadius(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.client.SearchRadius(
+		r.Context(),
 		h.token(),
 		regionclient.Coordinate{Latitude: req.Location.Lat, Longitude: req.Location.Lon},
 		req.RadiusKm,
@@ -131,6 +135,7 @@ func (h *RegionHandler) FindCrossingLocations(w http.ResponseWriter, r *http.Req
 	cfg := buildCrossingConfig(req.Config.Type, req.Config.RoadTypeOrder, req.Config.RoadTypeDelta, req.Config.DropDistance)
 
 	crossings, err := h.client.FindCrossingLocations(
+		r.Context(),
 		h.token(),
 		req.FromRegion, req.ToRegion,
 		regionclient.Coordinate{Latitude: req.FromLoc.Lat, Longitude: req.FromLoc.Lon},
@@ -153,7 +158,7 @@ func (h *RegionHandler) FindRegionPath(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	path, err := h.client.FindRegionPath(h.token(), req.FromRegion, req.ToRegion)
+	path, err := h.client.FindRegionPath(r.Context(), h.token(), req.FromRegion, req.ToRegion)
 	if err != nil {
 		writeJSON(w, grpcStatus(err), errBody(err))
 		return

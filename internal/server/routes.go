@@ -26,23 +26,23 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/whoami", auth.WhoAmI)
 	mux.HandleFunc("GET /api/v1/auth/me", auth.Me)
 
-	// Route (async SSE)
-	mux.HandleFunc("POST /api/v1/route", s.route.Route)
+	// Route (async SSE) — requires verified user
+	mux.Handle("POST /api/v1/route", middleware.RequireVerifiedUser(http.HandlerFunc(s.route.Route)))
 
-	// Search (async SSE)
-	mux.HandleFunc("POST /api/v1/search", s.search.Search)
-	mux.HandleFunc("POST /api/v1/search/reverse", s.search.ReverseGeocode)
+	// Search (async SSE) — requires verified user
+	mux.Handle("POST /api/v1/search", middleware.RequireVerifiedUser(http.HandlerFunc(s.search.Search)))
+	mux.Handle("POST /api/v1/search/reverse", middleware.RequireVerifiedUser(http.HandlerFunc(s.search.ReverseGeocode)))
 
-	// Region — requires authenticated user
+	// Region — requires verified user
 	region := s.region
-	mux.Handle("POST /api/v1/region/search-point", middleware.RequireUser(http.HandlerFunc(region.SearchPoint)))
-	mux.Handle("POST /api/v1/region/search-box", middleware.RequireUser(http.HandlerFunc(region.SearchBox)))
-	mux.Handle("POST /api/v1/region/search-radius", middleware.RequireUser(http.HandlerFunc(region.SearchRadius)))
-	mux.Handle("POST /api/v1/region/find-crossing-locations", middleware.RequireUser(http.HandlerFunc(region.FindCrossingLocations)))
-	mux.Handle("POST /api/v1/region/find-region-path", middleware.RequireUser(http.HandlerFunc(region.FindRegionPath)))
+	mux.Handle("POST /api/v1/region/search-point", middleware.RequireVerifiedUser(http.HandlerFunc(region.SearchPoint)))
+	mux.Handle("POST /api/v1/region/search-box", middleware.RequireVerifiedUser(http.HandlerFunc(region.SearchBox)))
+	mux.Handle("POST /api/v1/region/search-radius", middleware.RequireVerifiedUser(http.HandlerFunc(region.SearchRadius)))
+	mux.Handle("POST /api/v1/region/find-crossing-locations", middleware.RequireVerifiedUser(http.HandlerFunc(region.FindCrossingLocations)))
+	mux.Handle("POST /api/v1/region/find-region-path", middleware.RequireVerifiedUser(http.HandlerFunc(region.FindRegionPath)))
 
-	// Tiles — HTTP reverse proxy, requires authenticated user
-	mux.Handle("/v1/tiles/", middleware.RequireUser(s.tiles))
+	// Tiles — HTTP reverse proxy, requires verified user
+	mux.Handle("/v1/tiles/", middleware.RequireVerifiedUser(s.tiles))
 
 	// Auth web pages — HTTP reverse proxy (strip /web prefix)
 	mux.Handle("/web/", s.web)
