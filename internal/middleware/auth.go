@@ -54,6 +54,18 @@ func Auth(keyCache KeyCache) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireUser returns 401 if the request has no valid JWT claims in context.
+// It must be used downstream of the Auth middleware.
+func RequireUser(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := security.GetClaims(r.Context()); !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if comma := strings.Index(xff, ","); comma >= 0 {

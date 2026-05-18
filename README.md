@@ -23,12 +23,16 @@ There is no gRPC port. `swayrider-api` calls downstream services over gRPC but d
 
 ### Dependencies
 
-- **authservice** — JWT public key discovery; token issuance for the service client credential
-- **routerservice** — route calculation (Plan 04: via async queue)
-- **searchservice** — geocoding (Plan 04: via async queue)
-- **regionservice** — spatial queries (direct gRPC proxy)
-- **tilesservice** — vector tile serving (HTTP reverse proxy)
-- **Redis** — rate limit counters; async job queue (Plan 04)
+| Service | Purpose | Required scope |
+|---------|---------|----------------|
+| **authservice** | JWT public key discovery; service token issuance | — |
+| **routerservice** | Route calculation (async queue) | `routing:execute` |
+| **searchservice** | Geocoding (async queue) | `search:execute` |
+| **regionservice** | Spatial queries (direct gRPC proxy) | `region:query` |
+| **tilesservice** | Vector tile serving (HTTP reverse proxy) | `tiles:serve` |
+| **Redis** | Rate limiting; async job queue | — |
+
+The gateway obtains a single service client token from authservice (covering all four scopes) and uses it for all downstream calls. See `infra/dev-mini/layer-20/swayrider-api-register/init.sh`.
 
 ### Proxy chain
 
@@ -85,20 +89,24 @@ All configuration is via environment variables. Copy `env.example` to `.env` and
 | `SWAYRIDER_API_CLIENT_ID` | — | Client ID from authservice |
 | `SWAYRIDER_API_CLIENT_SECRET` | — | Client secret from authservice |
 
-Register swayrider-api as a service client once (requires an admin access token):
+Required scopes: `region:query routing:execute search:execute tiles:serve`
+
+In the dev stack, registration is fully automated by `infra/dev-mini/layer-20/swayrider-api-register/init.sh`. The script detects scope changes on each compose-up and re-registers if needed. To force a reset:
 
 ```bash
-curl -X POST http://localhost:34001/api/v1/auth/create-service-client \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "swayrider-api",
-    "description": "API gateway service client",
-    "scopes": ["routing:execute", "search:execute"]
-  }'
+FORCE_REREGISTER=true docker compose -f infra/dev-mini/layer-20/compose.yml up --force-recreate swayrider-api-register
+docker compose -f infra/dev-mini/layer-30/compose.yml restart swayrider-api
 ```
 
-Set the returned `client_id` and `client_secret` as `SWAYRIDER_API_CLIENT_ID` and `SWAYRIDER_API_CLIENT_SECRET`.
+For manual registration:
+```bash
+swctl auth create-service-client \
+  --auth-host localhost --auth-port 34101 \
+  --user admin@example.com --password <pw> \
+  swayrider-api region:query routing:execute search:execute tiles:serve
+```
+
+Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and `SWAYRIDER_API_CLIENT_SECRET`.
 
 ### Rate limits
 
@@ -138,6 +146,7 @@ The gateway proxies these endpoints to authservice over gRPC. On login, register
 
 | Endpoint | Method | Auth | Notes |
 |----------|--------|------|-------|
+| `/health` | GET | — | Liveness check |
 | `/api/v1/auth/login` | POST | — | Rate limited (IP) |
 | `/api/v1/auth/register` | POST | — | Rate limited (IP) |
 | `/api/v1/auth/refresh` | POST | Refresh token | Cookie or request body |
@@ -150,6 +159,11 @@ The gateway proxies these endpoints to authservice over gRPC. On login, register
 | `/api/v1/auth/public-keys` | GET | — | Served from gateway key cache |
 | `/api/v1/auth/whoami` | GET | Access token | Full user info from authservice |
 | `/api/v1/auth/me` | GET | Access token | Claims from JWT (no gRPC call) |
+| `/api/v1/region/*` | POST | **Access token** | All region endpoints require user JWT |
+| `/api/v1/route` | POST | **Access token** | SSE streaming |
+| `/api/v1/search` | POST | **Access token** | SSE streaming |
+| `/api/v1/search/reverse` | POST | **Access token** | SSE streaming |
+| `/v1/tiles/*` | GET | **Access token** | Proxy injects service token to tilesservice |
 
 #### Login
 

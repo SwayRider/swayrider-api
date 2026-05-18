@@ -82,7 +82,7 @@ func main() {
 		authClt,
 		cfg.ClientID,
 		cfg.ClientSecret,
-		[]string{"routing:execute", "search:execute"},
+		[]string{"region:query", "routing:execute", "search:execute", "tiles:serve"},
 		lg,
 	)
 	tokenMgr.Start(ctx)
@@ -123,10 +123,10 @@ func main() {
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authClt, keyCache, lg)
-	regionHandler := handlers.NewRegionHandler(regionClt)
+	regionHandler := handlers.NewRegionHandler(regionClt, tokenMgr.Token)
 	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
 	searchHandler := handlers.NewSearchHandler(producer, hub, lg)
-	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort)
+	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
 	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, 8000)
 
 	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
