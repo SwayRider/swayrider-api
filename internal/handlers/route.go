@@ -10,6 +10,7 @@ import (
 
 	"github.com/swayrider/grpcclients/routerclient"
 	"github.com/swayrider/swlib/jwt"
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
 	"github.com/swayrider/swayrider-api/internal/queue"
 	"github.com/swayrider/swayrider-api/internal/sse"
@@ -44,10 +45,15 @@ type RouteOptions struct {
 type RouteHandler struct {
 	producer *queue.Producer
 	hub      *sse.Hub
+	l        *log.Logger
 }
 
-func NewRouteHandler(producer *queue.Producer, hub *sse.Hub) *RouteHandler {
-	return &RouteHandler{producer: producer, hub: hub}
+func NewRouteHandler(producer *queue.Producer, hub *sse.Hub, l *log.Logger) *RouteHandler {
+	return &RouteHandler{
+		producer: producer,
+		hub:      hub,
+		l:        l.Derive(log.WithComponent("route")),
+	}
 }
 
 func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +83,8 @@ func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lg := h.l.Derive(log.WithFunction("Route"))
+
 	jobID, err := h.producer.Enqueue(r.Context(), queue.StreamRouting, queue.Job{
 		Payload:      string(payload),
 		UserID:       claims.Subject,
@@ -85,14 +93,19 @@ func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
 		UserVerified: fmt.Sprintf("%t", userVerified),
 	})
 	if errors.Is(err, queue.ErrQueueFull) {
+		lg.Warnf("queue full user=%s", claims.Subject)
 		w.Header().Set("Retry-After", "30")
 		http.Error(w, "queue full", http.StatusTooManyRequests)
 		return
 	}
 	if err != nil {
+		lg.Errorf("enqueue failed user=%s err=%v", claims.Subject, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	lg.Infof("route enqueued job_id=%s user=%s from=%.4f,%.4f to=%.4f,%.4f vehicle=%s",
+		jobID, claims.Subject, req.From.Lat, req.From.Lon, req.To.Lat, req.To.Lon, req.Vehicle)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

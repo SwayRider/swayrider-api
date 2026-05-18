@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -12,6 +11,7 @@ import (
 	"github.com/swayrider/grpcclients/routerclient"
 	"github.com/swayrider/grpcclients/searchclient"
 	"github.com/swayrider/swlib/jwt"
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
 	"github.com/swayrider/swayrider-api/internal/handlers"
@@ -27,6 +27,12 @@ func main() {
 	jwt.Configure("SwayRider", "SwayRider")
 
 	cfg := config.Load()
+
+	lg := log.New(log.WithComponent("swayrider-api"))
+	if err := log.SetLogLevel(cfg.LogLevel); err != nil {
+		lg.Warnf("invalid LOG_LEVEL %q, defaulting to info: %v", cfg.LogLevel, err)
+	}
+
 	ctx := context.Background()
 
 	// gRPC clients
@@ -34,8 +40,7 @@ func main() {
 		return cfg.AuthServiceHost, cfg.AuthServicePort
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "authclient: %v\n", err)
-		os.Exit(1)
+		lg.Fatalf("authclient: %v", err)
 	}
 	authClt := authCltIface.(*authclient.Client)
 
@@ -43,8 +48,7 @@ func main() {
 		return cfg.RegionServiceHost, cfg.RegionServicePort
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "regionclient: %v\n", err)
-		os.Exit(1)
+		lg.Fatalf("regionclient: %v", err)
 	}
 	regionClt := regionCltIface.(*regionclient.Client)
 
@@ -52,8 +56,7 @@ func main() {
 		return cfg.RouterServiceHost, cfg.RouterServicePort
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "routerclient: %v\n", err)
-		os.Exit(1)
+		lg.Fatalf("routerclient: %v", err)
 	}
 	routerClt := routerCltIface.(*routerclient.Client)
 
@@ -61,8 +64,7 @@ func main() {
 		return cfg.SearchServiceHost, cfg.SearchServicePort
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "searchclient: %v\n", err)
-		os.Exit(1)
+		lg.Fatalf("searchclient: %v", err)
 	}
 	searchClt := searchCltIface.(*searchclient.Client)
 
@@ -72,7 +74,7 @@ func main() {
 	})
 
 	// JWT key cache
-	keyCache := jwtkeys.New(authClt)
+	keyCache := jwtkeys.New(authClt, lg)
 	keyCache.Start(ctx)
 
 	// Service token manager — fetches and refreshes the gateway's own token.
@@ -81,19 +83,20 @@ func main() {
 		cfg.ClientID,
 		cfg.ClientSecret,
 		[]string{"routing:execute", "search:execute"},
+		lg,
 	)
 	tokenMgr.Start(ctx)
 
 	// Rate limiter + circuit breakers
 	limiter := ratelimit.New(redisClient)
-	breakers := circuitbreaker.New([]string{"authservice", "routerservice", "searchservice", "regionservice"})
+	breakers := circuitbreaker.New([]string{"authservice", "routerservice", "searchservice", "regionservice"}, lg)
 
 	// Queue producer + consumer group bootstrap
 	producer := queue.NewProducer(redisClient, cfg.QueueMaxDepth)
 	producer.Bootstrap(ctx)
 
 	// SSE hub
-	hub := sse.New(redisClient)
+	hub := sse.New(redisClient, lg)
 
 	// Worker pools
 	resultTTL := time.Duration(cfg.ResultTTLSeconds) * time.Second
@@ -104,6 +107,7 @@ func main() {
 		Count:     cfg.RouteWorkerCount,
 		Process:   handlers.NewRouteProcessFn(routerClt, tokenMgr.Token, breakers),
 		ResultTTL: resultTTL,
+		Logger:    lg,
 	})
 	routeWorkers.Start(ctx)
 
@@ -113,17 +117,18 @@ func main() {
 		Count:     cfg.SearchWorkerCount,
 		Process:   handlers.NewSearchProcessFn(searchClt, tokenMgr.Token, breakers),
 		ResultTTL: resultTTL,
+		Logger:    lg,
 	})
 	searchWorkers.Start(ctx)
 
 	// Handlers
-	authHandler := handlers.NewAuthHandler(authClt, keyCache)
+	authHandler := handlers.NewAuthHandler(authClt, keyCache, lg)
 	regionHandler := handlers.NewRegionHandler(regionClt)
-	routeHandler := handlers.NewRouteHandler(producer, hub)
-	searchHandler := handlers.NewSearchHandler(producer, hub)
+	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
+	searchHandler := handlers.NewSearchHandler(producer, hub, lg)
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort)
 	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, 8000)
 
-	srv := server.New(cfg, authHandler, regionHandler, routeHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
+	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
 	srv.Run(ctx)
 }

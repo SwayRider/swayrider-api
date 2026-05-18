@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/jwt"
 )
 
@@ -18,10 +19,14 @@ type Cache struct {
 	mu      sync.RWMutex
 	keys    []string
 	fetcher PublicKeyFetcher
+	l       *log.Logger
 }
 
-func New(fetcher PublicKeyFetcher) *Cache {
-	return &Cache{fetcher: fetcher}
+func New(fetcher PublicKeyFetcher, l *log.Logger) *Cache {
+	return &Cache{
+		fetcher: fetcher,
+		l:       l.Derive(log.WithComponent("jwtkeys")),
+	}
 }
 
 func (c *Cache) Start(ctx context.Context) {
@@ -41,13 +46,20 @@ func (c *Cache) Start(ctx context.Context) {
 }
 
 func (c *Cache) refresh() {
+	lg := c.l.Derive(log.WithFunction("refresh"))
 	keys, err := c.fetcher.PublicKeys()
-	if err != nil || len(keys) == 0 {
+	if err != nil {
+		lg.Warnf("failed to refresh public keys: %v", err)
+		return
+	}
+	if len(keys) == 0 {
+		lg.Warnln("authservice returned no public keys")
 		return
 	}
 	c.mu.Lock()
 	c.keys = keys
 	c.mu.Unlock()
+	lg.Infof("refreshed %d public key(s)", len(keys))
 }
 
 // Keys returns a snapshot of the current public keys (PEM-encoded).
