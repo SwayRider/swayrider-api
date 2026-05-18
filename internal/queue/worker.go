@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	log "github.com/swayrider/swlib/logger"
 )
 
 // ProcessFn processes a decoded job and returns JSON-encoded result data.
@@ -19,15 +20,20 @@ type WorkerConfig struct {
 	Count     int
 	Process   ProcessFn
 	ResultTTL time.Duration
+	Logger    *log.Logger
 }
 
 // WorkerPool drains a Redis Stream with a fixed number of goroutines.
 type WorkerPool struct {
 	cfg WorkerConfig
+	l   *log.Logger
 }
 
 func NewWorkerPool(cfg WorkerConfig) *WorkerPool {
-	return &WorkerPool{cfg: cfg}
+	return &WorkerPool{
+		cfg: cfg,
+		l:   cfg.Logger.Derive(log.WithComponent("worker"), log.WithContextField("stream", cfg.Stream)),
+	}
 }
 
 // Start launches the worker goroutines. They run until ctx is cancelled.
@@ -57,25 +63,31 @@ func (wp *WorkerPool) runWorker(ctx context.Context, workerID string) {
 			continue
 		}
 		for _, msg := range msgs[0].Messages {
-			wp.processMessage(ctx, msg)
+			wp.processMessage(ctx, workerID, msg)
 		}
 	}
 }
 
-func (wp *WorkerPool) processMessage(ctx context.Context, msg redis.XMessage) {
+func (wp *WorkerPool) processMessage(ctx context.Context, workerID string, msg redis.XMessage) {
 	// Always ACK, even on error, so the message isn't re-delivered forever.
 	defer wp.cfg.Redis.XAck(ctx, wp.cfg.Stream, GroupName, msg.ID)
 
 	job := parseJob(msg.Values)
+	lg := wp.l.Derive(log.WithFunction(workerID))
+
+	start := time.Now()
+	lg.Debugf("processing job job_id=%s user=%s", job.JobID, job.UserID)
 
 	var result JobResult
 	data, err := wp.cfg.Process(ctx, job)
 	if err != nil {
+		lg.Errorf("job failed job_id=%s user=%s err=%v", job.JobID, job.UserID, err)
 		result = JobResult{
 			Success: false,
 			Error:   GrpcErrToJobError(err),
 		}
 	} else {
+		lg.Debugf("job done job_id=%s user=%s duration=%dms", job.JobID, job.UserID, time.Since(start).Milliseconds())
 		result = JobResult{
 			Success: true,
 			Data:    data,

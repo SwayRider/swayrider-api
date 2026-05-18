@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rs/cors"
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
 	"github.com/swayrider/swayrider-api/internal/handlers"
@@ -20,6 +21,7 @@ import (
 
 type Server struct {
 	cfg      *config.Config
+	l        *log.Logger
 	auth     *handlers.AuthHandler
 	region   *handlers.RegionHandler
 	route    *handlers.RouteHandler
@@ -33,6 +35,7 @@ type Server struct {
 
 func New(
 	cfg *config.Config,
+	l *log.Logger,
 	auth *handlers.AuthHandler,
 	region *handlers.RegionHandler,
 	route *handlers.RouteHandler,
@@ -45,6 +48,7 @@ func New(
 ) *Server {
 	return &Server{
 		cfg:      cfg,
+		l:        l.Derive(log.WithComponent("server")),
 		auth:     auth,
 		region:   region,
 		route:    route,
@@ -58,6 +62,8 @@ func New(
 }
 
 func (s *Server) Run(ctx context.Context) {
+	lg := s.l.Derive(log.WithFunction("Run"))
+
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
@@ -68,9 +74,11 @@ func (s *Server) Run(ctx context.Context) {
 		UserExpensive: s.cfg.RateLimitUserExpensive,
 	}
 
-	// Middleware chain (innermost first): mux → rateLimit → auth → cors
+	// Middleware chain (innermost first): mux → rateLimit → logging → auth → cors
 	handler := middleware.Auth(s.keyCache)(
-		middleware.RateLimit(s.limiter, rateCfg)(mux),
+		middleware.Logging(s.l)(
+			middleware.RateLimit(s.limiter, rateCfg, s.l)(mux),
+		),
 	)
 
 	corsHandler := cors.New(cors.Options{
@@ -87,23 +95,27 @@ func (s *Server) Run(ctx context.Context) {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+			lg.Errorf("server error: %v", err)
 			os.Exit(1)
 		}
 	}()
 
-	fmt.Printf("swayrider-api listening on :%d\n", s.cfg.HTTPPort)
+	lg.Infof("listening on :%d", s.cfg.HTTPPort)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	select {
 	case <-quit:
+		lg.Infoln("shutdown signal received")
 	case <-ctx.Done():
+		lg.Infoln("context cancelled, shutting down")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		fmt.Fprintf(os.Stderr, "graceful shutdown error: %v\n", err)
+		lg.Errorf("graceful shutdown error: %v", err)
+	} else {
+		lg.Infoln("shutdown complete")
 	}
 }

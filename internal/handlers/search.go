@@ -9,6 +9,7 @@ import (
 
 	"github.com/swayrider/grpcclients/searchclient"
 	"github.com/swayrider/swlib/jwt"
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
 	"github.com/swayrider/swayrider-api/internal/queue"
 	"github.com/swayrider/swayrider-api/internal/sse"
@@ -47,37 +48,48 @@ type SearchBBox struct {
 type SearchHandler struct {
 	producer *queue.Producer
 	hub      *sse.Hub
+	l        *log.Logger
 }
 
-func NewSearchHandler(producer *queue.Producer, hub *sse.Hub) *SearchHandler {
-	return &SearchHandler{producer: producer, hub: hub}
+func NewSearchHandler(producer *queue.Producer, hub *sse.Hub, l *log.Logger) *SearchHandler {
+	return &SearchHandler{
+		producer: producer,
+		hub:      hub,
+		l:        l.Derive(log.WithComponent("search")),
+	}
 }
 
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
-	h.enqueueAndStream(w, r, queue.StreamSearch, func() (string, error) {
-		var req SearchRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var parsed SearchRequest
+	h.enqueueAndStream(w, r, queue.StreamSearch, "search", func() (string, error) {
+		if err := json.NewDecoder(r.Body).Decode(&parsed); err != nil {
 			return "", err
 		}
 		b, err := json.Marshal(struct {
 			Kind string        `json:"kind"`
 			Req  SearchRequest `json:"req"`
-		}{"search", req})
+		}{"search", parsed})
 		return string(b), err
+	}, func(userID, jobID string) {
+		h.l.Derive(log.WithFunction("Search")).Infof(
+			"search enqueued job_id=%s user=%s text=%q", jobID, userID, parsed.Text)
 	})
 }
 
 func (h *SearchHandler) ReverseGeocode(w http.ResponseWriter, r *http.Request) {
-	h.enqueueAndStream(w, r, queue.StreamSearch, func() (string, error) {
-		var req ReverseGeocodeRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var parsed ReverseGeocodeRequest
+	h.enqueueAndStream(w, r, queue.StreamSearch, "reverse", func() (string, error) {
+		if err := json.NewDecoder(r.Body).Decode(&parsed); err != nil {
 			return "", err
 		}
 		b, err := json.Marshal(struct {
 			Kind string                `json:"kind"`
 			Req  ReverseGeocodeRequest `json:"req"`
-		}{"reverse", req})
+		}{"reverse", parsed})
 		return string(b), err
+	}, func(userID, jobID string) {
+		h.l.Derive(log.WithFunction("ReverseGeocode")).Infof(
+			"reverse geocode enqueued job_id=%s user=%s lat=%.4f lon=%.4f", jobID, userID, parsed.Lat, parsed.Lon)
 	})
 }
 
@@ -85,8 +97,12 @@ func (h *SearchHandler) enqueueAndStream(
 	w http.ResponseWriter,
 	r *http.Request,
 	stream string,
+	kind string,
 	buildPayload func() (string, error),
+	logEnqueued func(userID, jobID string),
 ) {
+	lg := h.l.Derive(log.WithFunction(kind))
+
 	claims, ok := security.GetClaims(r.Context())
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -116,14 +132,18 @@ func (h *SearchHandler) enqueueAndStream(
 		UserVerified: fmt.Sprintf("%t", userVerified),
 	})
 	if errors.Is(err, queue.ErrQueueFull) {
+		lg.Warnf("queue full user=%s", claims.Subject)
 		w.Header().Set("Retry-After", "30")
 		http.Error(w, "queue full", http.StatusTooManyRequests)
 		return
 	}
 	if err != nil {
+		lg.Errorf("enqueue failed user=%s err=%v", claims.Subject, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	logEnqueued(claims.Subject, jobID)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

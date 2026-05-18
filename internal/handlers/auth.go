@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/swayrider/grpcclients/authclient"
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
 )
 
@@ -32,10 +33,15 @@ type KeysProvider interface {
 type AuthHandler struct {
 	client AuthClient
 	keys   KeysProvider
+	l      *log.Logger
 }
 
-func NewAuthHandler(client AuthClient, keys KeysProvider) *AuthHandler {
-	return &AuthHandler{client: client, keys: keys}
+func NewAuthHandler(client AuthClient, keys KeysProvider, l *log.Logger) *AuthHandler {
+	return &AuthHandler{
+		client: client,
+		keys:   keys,
+		l:      l.Derive(log.WithComponent("auth")),
+	}
 }
 
 // --- helpers ---
@@ -100,6 +106,7 @@ func clearAuthCookies(w http.ResponseWriter) {
 // --- handlers ---
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	lg := h.l.Derive(log.WithFunction("Login"))
 	var req struct {
 		Email      string `json:"email"`
 		Password   string `json:"password"`
@@ -108,11 +115,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
+	ip, _ := security.GetOrigIp(r.Context())
 	accessToken, refreshToken, err := h.client.Login(req.Email, req.Password, req.RememberMe)
 	if err != nil {
+		lg.Warnf("login failed email=%s ip=%s err=%v", req.Email, ip, err)
 		writeJSON(w, grpcStatus(err), errBody(err))
 		return
 	}
+	lg.Infof("login ok email=%s ip=%s", req.Email, ip)
 	setAuthCookies(w, r, accessToken, refreshToken)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"access_token":  accessToken,
@@ -163,6 +173,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	newAccess, newRefresh, err := h.client.Refresh(refreshToken, rememberMe)
 	if err != nil {
+		h.l.Derive(log.WithFunction("Refresh")).Warnf("token refresh failed: %v", err)
 		writeJSON(w, grpcStatus(err), errBody(err))
 		return
 	}
@@ -184,6 +195,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.client.Logout(refreshToken); err != nil {
+		h.l.Derive(log.WithFunction("Logout")).Warnf("logout failed: %v", err)
 		writeJSON(w, grpcStatus(err), errBody(err))
 		return
 	}

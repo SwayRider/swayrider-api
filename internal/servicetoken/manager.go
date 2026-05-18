@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	log "github.com/swayrider/swlib/logger"
 )
 
 // TokenFetcher is satisfied by *authclient.Client.
@@ -19,14 +21,16 @@ type Manager struct {
 	clientSecret string
 	scopes       []string
 	fetcher      TokenFetcher
+	l            *log.Logger
 }
 
-func New(fetcher TokenFetcher, clientID, clientSecret string, scopes []string) *Manager {
+func New(fetcher TokenFetcher, clientID, clientSecret string, scopes []string, l *log.Logger) *Manager {
 	return &Manager{
 		fetcher:      fetcher,
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		scopes:       scopes,
+		l:            l.Derive(log.WithComponent("servicetoken")),
 	}
 }
 
@@ -51,14 +55,17 @@ func (m *Manager) Start(ctx context.Context) {
 }
 
 func (m *Manager) refresh() {
+	lg := m.l.Derive(log.WithFunction("refresh"))
 	token, _, validUntil, err := m.fetcher.GetToken(m.clientID, m.clientSecret, m.scopes)
 	if err != nil {
+		lg.Errorf("failed to refresh service token: %v", err)
 		return
 	}
 	m.mu.Lock()
 	m.token = token
 	m.expiry = validUntil
 	m.mu.Unlock()
+	lg.Infof("service token refreshed, expires at %s", validUntil.UTC().Format(time.RFC3339))
 }
 
 // Token returns the current cached service client token.

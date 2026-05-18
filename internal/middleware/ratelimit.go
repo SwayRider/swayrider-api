@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
 )
 
@@ -23,7 +24,8 @@ type RateLimitConfig struct {
 }
 
 // RateLimit applies sliding-window rate limits based on the request path and auth state.
-func RateLimit(limiter RateLimiter, cfg RateLimitConfig) func(http.Handler) http.Handler {
+func RateLimit(limiter RateLimiter, cfg RateLimitConfig, l *log.Logger) func(http.Handler) http.Handler {
+	lg := l.Derive(log.WithComponent("ratelimit"))
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -56,6 +58,11 @@ func RateLimit(limiter RateLimiter, cfg RateLimitConfig) func(http.Handler) http
 			_ = err // fail open on Redis error (Allow already does this)
 
 			if !allowed {
+				userID := "-"
+				if authed {
+					userID = claims.Subject
+				}
+				lg.Warnf("rate limit exceeded class=%s ip=%s user=%s path=%s", class, ip, userID, path)
 				w.Header().Set("Retry-After", "60")
 				http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 				return
