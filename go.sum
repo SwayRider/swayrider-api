@@ -40,12 +40,16 @@ github.com/swayrider/grpcclients v0.1.1 h1:2daCng6gPClEwOwKNVqEI2SKozOV5hZf1FsSr
 github.com/swayrider/grpcclients v0.1.1/go.mod h1:BGZGu7XPZFu9vz3J1MbyUrkVGNUHgr9q2/KXMd9s8SU=
 github.com/swayrider/grpcclients v0.1.2-0.20260513193630-fb9b503de3d0 h1:FfVJwiA+4cXWLp/9ozHGe77C6ZWdHLNCOCxzdsbpEt8=
 github.com/swayrider/grpcclients v0.1.2-0.20260513193630-fb9b503de3d0/go.mod h1:BGZGu7XPZFu9vz3J1MbyUrkVGNUHgr9q2/KXMd9s8SU=
+github.com/swayrider/grpcclients v0.1.2 h1:NQWVDKUCM0NlkP2P7aokhmMrEhB4u0oMk7z8/UAoPFI=
+github.com/swayrider/grpcclients v0.1.2/go.mod h1:BGZGu7XPZFu9vz3J1MbyUrkVGNUHgr9q2/KXMd9s8SU=
 github.com/swayrider/protos v0.1.1 h1:8FOYwavGfaon1ylw07DeMgttU+ZitoN6nK4hCZO/7FI=
 github.com/swayrider/protos v0.1.1/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
 github.com/swayrider/swlib v0.1.1 h1:1PTJTHMonoX/AC9gvkzHG+VdYt6gEt/MpDC2F514dw4=
 github.com/swayrider/swlib v0.1.1/go.mod h1:5PWYUKOJxXenwyZJMd5pfKwJa/U092Oc3SDj+yyIFTk=
 github.com/swayrider/swlib v0.1.2-0.20260513190938-e9124987785d h1:TPqQ9RN7mNHdwrFfFxte4urbW8cO6DF1Ot3SNQrgyx8=
 github.com/swayrider/swlib v0.1.2-0.20260513190938-e9124987785d/go.mod h1:mSScpgfHXCO2K+NTCxRHA+ZPsrEJF4FGRUVU1WPLKn8=
+github.com/swayrider/swlib v0.1.2 h1:XPexKJT+dI+Tt92DZ6lFMFMqKW2G3o8zcOJelEVox7E=
+github.com/swayrider/swlib v0.1.2/go.mod h1:mSScpgfHXCO2K+NTCxRHA+ZPsrEJF4FGRUVU1WPLKn8=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.39.0 h1:8yPrr/S0ND9QEfTfdP9V+SiwT4E0G7Y5MO7p85nis48=
