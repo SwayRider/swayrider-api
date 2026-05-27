@@ -9,6 +9,24 @@ import (
 	"github.com/swayrider/swlib/security"
 )
 
+// RequireAdmin returns 401 if there are no valid claims, 403 if the user is
+// not an admin. Must be used downstream of the Auth middleware.
+func RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := security.GetClaims(r.Context())
+		if !ok || claims == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userClaims, ok := claims.SwayRiderClaims.(*jwt.SwayRiderUserClaims)
+		if !ok || !userClaims.IsAdmin {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // KeyCache is satisfied by *jwtkeys.Cache.
 type KeyCache interface {
 	Verify(token string) (*jwt.Claims, error)
