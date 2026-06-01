@@ -23,6 +23,17 @@ type AuthClient interface {
 	ChangePassword(accessToken, oldPassword, newPassword string) (message string, err error)
 	CheckPasswordStrength(password string) (isStrong bool, message string, err error)
 	WhoAmI(accessToken string, userCtor authclient.UserCtor) (authclient.User, error)
+
+	// Admin methods
+	CreateAdmin(accessToken, email, password string) (userId, message string, err error)
+	ChangeAccountType(accessToken, userId, accountType string) (message string, err error)
+	WhoIs(accessToken string, lookup authclient.WhoIsOneOf, userCtor authclient.UserCtor) (authclient.User, error)
+	CreateServiceClient(accessToken, name, description string, scopes []string) (clientId, clientSecret string, err error)
+	DeleteServiceClient(accessToken, clientId string) (message string, err error)
+	ListServiceClients(accessToken string, page, pageSize int, ctor authclient.ServiceClientCtor) ([]authclient.ServiceClient, int32, error)
+	InviteUser(accessToken, email string) (message string, err error)
+	RevokeInvite(accessToken, email string) (message string, err error)
+	ListInvites(accessToken string, page, pageSize int, ctor authclient.InviteCtor) ([]authclient.Invite, int32, error)
 }
 
 // KeysProvider is satisfied by *jwtkeys.Cache.

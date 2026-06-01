@@ -44,6 +44,17 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Tiles — HTTP reverse proxy, requires verified user
 	mux.Handle("/v1/tiles/", middleware.RequireVerifiedUser(s.tiles))
 
+	// Auth — admin only
+	mux.Handle("POST /api/v1/auth/admin/create-admin", middleware.RequireAdmin(http.HandlerFunc(auth.CreateAdmin)))
+	mux.Handle("POST /api/v1/auth/admin/change-account-type", middleware.RequireAdmin(http.HandlerFunc(auth.ChangeAccountType)))
+	mux.Handle("POST /api/v1/auth/admin/whois", middleware.RequireAdmin(http.HandlerFunc(auth.WhoIs)))
+	mux.Handle("POST /api/v1/auth/admin/create-service-client", middleware.RequireAdmin(http.HandlerFunc(auth.CreateServiceClient)))
+	mux.Handle("POST /api/v1/auth/admin/delete-service-client", middleware.RequireAdmin(http.HandlerFunc(auth.DeleteServiceClient)))
+	mux.Handle("GET /api/v1/auth/admin/list-service-clients", middleware.RequireAdmin(http.HandlerFunc(auth.ListServiceClients)))
+	mux.Handle("POST /api/v1/auth/admin/invite-user", middleware.RequireAdmin(http.HandlerFunc(auth.InviteUser)))
+	mux.Handle("POST /api/v1/auth/admin/revoke-invite", middleware.RequireAdmin(http.HandlerFunc(auth.RevokeInvite)))
+	mux.Handle("GET /api/v1/auth/admin/list-invites", middleware.RequireAdmin(http.HandlerFunc(auth.ListInvites)))
+
 	// Auth web pages — HTTP reverse proxy (strip /web prefix)
 	mux.Handle("/web/", s.web)
 }
