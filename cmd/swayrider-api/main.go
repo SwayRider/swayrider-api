@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/swayrider/grpcclients/authclient"
 	"github.com/swayrider/grpcclients/regionclient"
 	"github.com/swayrider/grpcclients/routerclient"
 	"github.com/swayrider/grpcclients/searchclient"
-	"github.com/swayrider/swlib/jwt"
-	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
 	"github.com/swayrider/swayrider-api/internal/handlers"
@@ -21,9 +20,13 @@ import (
 	"github.com/swayrider/swayrider-api/internal/server"
 	"github.com/swayrider/swayrider-api/internal/servicetoken"
 	"github.com/swayrider/swayrider-api/internal/sse"
+	"github.com/swayrider/swlib/jwt"
+	log "github.com/swayrider/swlib/logger"
 )
 
 func main() {
+	_ = godotenv.Load()
+
 	jwt.Configure("SwayRider", "SwayRider")
 
 	cfg := config.Load()
