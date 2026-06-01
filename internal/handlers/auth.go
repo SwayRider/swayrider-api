@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/swayrider/grpcclients/authclient"
+	"github.com/swayrider/swlib/http/cookies"
 	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
 )
@@ -77,41 +77,25 @@ func isSecureRequest(r *http.Request) bool {
 }
 
 func setAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refreshToken string) {
-	secure := isSecureRequest(r)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "access_token",
-		Value:    accessToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    refreshToken,
-		Path:     "/api/v1/auth/refresh",
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
-	})
+	opts := cookies.NewCookieOptsFromContext(r.Context())
+	opts.SetSameSite(http.SameSiteStrictMode)
+
+	http.SetCookie(w, cookies.NewServerCookie("access_token", []byte(accessToken), opts))
+
+	refreshOpts := opts
+	refreshOpts.SetPath("/api/v1/auth/refresh")
+	http.SetCookie(w, cookies.NewServerCookie("refresh_token", []byte(refreshToken), refreshOpts))
 }
 
 func clearAuthCookies(w http.ResponseWriter) {
-	expired := time.Unix(0, 0)
-	http.SetCookie(w, &http.Cookie{
-		Name:    "access_token",
-		Value:   "",
-		Path:    "/",
-		MaxAge:  -1,
-		Expires: expired,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:    "refresh_token",
-		Value:   "",
-		Path:    "/api/v1/auth/refresh",
-		MaxAge:  -1,
-		Expires: expired,
-	})
+	opts := cookies.NewCookieOpts()
+	opts.SetSameSite(http.SameSiteStrictMode)
+
+	http.SetCookie(w, cookies.ClearCookie("access_token", opts))
+
+	refreshOpts := opts
+	refreshOpts.SetPath("/api/v1/auth/refresh")
+	http.SetCookie(w, cookies.ClearCookie("refresh_token", refreshOpts))
 }
 
 // --- handlers ---
