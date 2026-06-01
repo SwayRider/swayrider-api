@@ -33,7 +33,7 @@ type AuthClient interface {
 	ListServiceClients(accessToken string, page, pageSize int, ctor authclient.ServiceClientCtor) ([]authclient.ServiceClient, int32, error)
 	InviteUser(accessToken, email string) (message string, err error)
 	RevokeInvite(accessToken, email string) (message string, err error)
-	ListInvites(accessToken string, page, pageSize int, ctor authclient.InviteCtor) ([]authclient.Invite, int32, error)
+	ListInvites(accessToken string, page, pageSize int, registered *bool, ctor authclient.InviteCtor) ([]authclient.Invite, int32, error)
 }
 
 // KeysProvider is satisfied by *jwtkeys.Cache.
@@ -367,6 +367,8 @@ func grpcStatus(err error) int {
 		return http.StatusBadRequest
 	case strings.Contains(msg, "ResourceExhausted"):
 		return http.StatusTooManyRequests
+	case strings.Contains(msg, "FailedPrecondition"):
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}
