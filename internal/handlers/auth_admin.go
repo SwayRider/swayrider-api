@@ -147,8 +147,13 @@ func (h *AuthHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	if pageSize < 1 {
 		pageSize = 20
 	}
-	invites, total, err := h.client.ListInvites(token, page, pageSize, func(id, email string, createdAt time.Time) authclient.Invite {
-		return inviteResult{id, email, createdAt}
+	var registered *bool
+	if raw := r.URL.Query().Get("registered"); raw != "" {
+		v := raw == "true"
+		registered = &v
+	}
+	invites, total, err := h.client.ListInvites(token, page, pageSize, registered, func(id, email string, createdAt time.Time, reg bool) authclient.Invite {
+		return inviteResult{id, email, createdAt, reg}
 	})
 	if err != nil {
 		writeJSON(w, grpcStatus(err), errBody(err))
@@ -160,6 +165,7 @@ func (h *AuthHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
 			"id":         inv.Id(),
 			"email":      inv.Email(),
 			"created_at": inv.CreatedAt(),
+			"registered": inv.Registered(),
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -252,14 +258,16 @@ func (h *AuthHandler) ListServiceClients(w http.ResponseWriter, r *http.Request)
 // --- private result types ---
 
 type inviteResult struct {
-	id        string
-	email     string
-	createdAt time.Time
+	id         string
+	email      string
+	createdAt  time.Time
+	registered bool
 }
 
 func (i inviteResult) Id() string           { return i.id }
 func (i inviteResult) Email() string        { return i.email }
 func (i inviteResult) CreatedAt() time.Time { return i.createdAt }
+func (i inviteResult) Registered() bool     { return i.registered }
 
 type serviceClientResult struct {
 	clientId    string
