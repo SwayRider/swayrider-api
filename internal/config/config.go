@@ -34,6 +34,8 @@ type Config struct {
 	RateLimitUserExpensive int
 
 	CORSAllowedOrigins []string
+
+	CookieNamespace string
 }
 
 func Load() *Config {
@@ -69,5 +71,7 @@ func Load() *Config {
 		RateLimitUserExpensive: env.GetAsInt("RATE_LIMIT_USER_EXPENSIVE", 20),
 
 		CORSAllowedOrigins: env.GetAsStringArr("CORS_ALLOWED_ORIGINS", "http://localhost:5173"),
+
+		CookieNamespace: env.Get("COOKIE_NAMESPACE", "com.hevanto-it.swayrider"),
 	}
 }

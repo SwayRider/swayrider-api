@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/swayrider/swlib/http/cookies"
 	"github.com/swayrider/swlib/jwt"
 	"github.com/swayrider/swlib/security"
 )
@@ -44,8 +45,10 @@ func Auth(keyCache KeyCache) func(http.Handler) http.Handler {
 			token := ""
 			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 				token = strings.TrimPrefix(auth, "Bearer ")
-			} else if cookie, err := r.Cookie("access_token"); err == nil {
-				token = cookie.Value
+			} else if cookie, err := r.Cookie(cookies.FullCookieName("access_token")); err == nil {
+				if b, err := cookies.DecodeValue(cookie); err == nil {
+					token = string(b)
+				}
 			}
 
 			if token != "" {
@@ -56,8 +59,10 @@ func Auth(keyCache KeyCache) func(http.Handler) http.Handler {
 			}
 
 			// Refresh token from cookie is used by the refresh endpoint.
-			if cookie, err := r.Cookie("refresh_token"); err == nil {
-				ctx = context.WithValue(ctx, security.RefreshKey, cookie.Value)
+			if cookie, err := r.Cookie(cookies.FullCookieName("refresh_token")); err == nil {
+				if b, err := cookies.DecodeValue(cookie); err == nil {
+					ctx = context.WithValue(ctx, security.RefreshKey, string(b))
+				}
 			}
 
 			// Detect HTTPS from the downstream proxy header.

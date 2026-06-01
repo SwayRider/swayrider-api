@@ -20,6 +20,7 @@ import (
 	"github.com/swayrider/swayrider-api/internal/server"
 	"github.com/swayrider/swayrider-api/internal/servicetoken"
 	"github.com/swayrider/swayrider-api/internal/sse"
+	"github.com/swayrider/swlib/http/cookies"
 	"github.com/swayrider/swlib/jwt"
 	log "github.com/swayrider/swlib/logger"
 )
@@ -30,6 +31,7 @@ func main() {
 	jwt.Configure("SwayRider", "SwayRider")
 
 	cfg := config.Load()
+	cookies.SetNamespace(cfg.CookieNamespace)
 
 	lg := log.New(log.WithComponent("swayrider-api"))
 	if err := log.SetLogLevel(cfg.LogLevel); err != nil {
