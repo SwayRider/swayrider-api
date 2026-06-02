@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/swayrider/grpcclients/regionclient"
 )
@@ -14,6 +15,7 @@ type RegionClient interface {
 	SearchRadius(ctx context.Context, token string, location regionclient.Coordinate, radiusKm float64, includeExtended bool) (regionclient.RegionList, error)
 	FindCrossingLocations(ctx context.Context, token string, fromRegion, toRegion string, fromLoc, toLoc regionclient.Coordinate, cfg regionclient.BorderCrossingConfig, limit int) ([]regionclient.BorderCrossing, error)
 	FindRegionPath(ctx context.Context, token string, fromRegion, toRegion string) ([]string, error)
+	FindRouteRegionPaths(ctx context.Context, token string, waypoints []regionclient.Coordinate, widthKm float64) ([][]string, error)
 }
 
 type RegionHandler struct {
@@ -166,10 +168,33 @@ func (h *RegionHandler) FindRegionPath(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"path": path})
 }
 
+func (h *RegionHandler) FindRouteRegionPaths(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Waypoints []struct {
+			Lat float64 `json:"lat"`
+			Lon float64 `json:"lon"`
+		} `json:"waypoints"`
+		WidthKm float64 `json:"width_km"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	waypoints := make([]regionclient.Coordinate, 0, len(req.Waypoints))
+	for _, wp := range req.Waypoints {
+		waypoints = append(waypoints, regionclient.Coordinate{Latitude: wp.Lat, Longitude: wp.Lon})
+	}
+	paths, err := h.client.FindRouteRegionPaths(r.Context(), h.token(), waypoints, req.WidthKm)
+	if err != nil {
+		writeJSON(w, grpcStatus(err), errBody(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"paths": paths})
+}
+
 func buildCrossingConfig(typ string, roadTypes []string, delta, drop float64) regionclient.BorderCrossingConfig {
 	rts := make([]regionclient.RoadType, 0, len(roadTypes))
 	for _, rt := range roadTypes {
-		rts = append(rts, regionclient.RoadType(rt))
+		rts = append(rts, regionclient.RoadType(strings.ToLower(rt)))
 	}
 	if typ == "advanced" {
 		return regionclient.BorderCrossingAdvancedConfig{

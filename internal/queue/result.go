@@ -32,18 +32,104 @@ type JobError struct {
 	Message string `json:"message"`
 }
 
-// RouteResult is the serialisable output of a successful routing job.
+// RouteResult mirrors the full Valhalla trip response structure.
 type RouteResult struct {
-	DistanceMeters  float64     `json:"distanceMeters"`
-	DurationSeconds float64     `json:"durationSeconds"`
-	Steps           []RouteStep `json:"steps"`
+	Trip TripResult `json:"trip"`
 }
 
-// RouteStep is one leg instruction within a RouteResult.
-type RouteStep struct {
-	Instruction     string  `json:"instruction"`
-	DistanceMeters  float64 `json:"distanceMeters"`
-	DurationSeconds float64 `json:"durationSeconds"`
+type TripResult struct {
+	Status        int              `json:"status"`
+	StatusMessage string           `json:"status_message"`
+	Units         string           `json:"units"`
+	Language      string           `json:"language"`
+	Locations     []LocationResult `json:"locations"`
+	Legs          []LegResult      `json:"legs"`
+	Summary       SummaryResult    `json:"summary"`
+}
+
+type LocationResult struct {
+	Lat              float64  `json:"lat"`
+	Lon              float64  `json:"lon"`
+	Type             string   `json:"type,omitempty"`
+	Heading          *int     `json:"heading,omitempty"`
+	SideOfStreet     string   `json:"side_of_steet,omitempty"`
+	DateTime         string   `json:"datetime,omitempty"`
+	OriginalIndex    *int     `json:"original_index,omitempty"`
+	TimeZoneOffset   *string  `json:"time_zone_offset,omitempty"`
+	TimeZoneName     *string  `json:"time_zone_name,omitempty"`
+}
+
+type LegResult struct {
+	Shape             string           `json:"shape"`
+	Maneuvers         []ManeuverResult `json:"maneuvers"`
+	Summary           SummaryResult    `json:"summary"`
+	Elevation         []float64        `json:"elevation,omitempty"`
+	ElevationInterval *float64         `json:"elevation_interval,omitempty"`
+}
+
+type ManeuverResult struct {
+	Type                               int                `json:"type"`
+	Instruction                        string             `json:"instruction"`
+	VerbalTransitionAlertInstruction   string             `json:"verbal_transition_alert_instruction,omitempty"`
+	VerbalPreTransitionInstruction     string             `json:"verbal_pre_transition_instruction,omitempty"`
+	VerbalPostTransitionInstruction    string             `json:"verbal_post_transition_instruction,omitempty"`
+	StreetNames                        []string           `json:"street_names,omitempty"`
+	BeginStreetNames                   []string           `json:"begin_street_names,omitempty"`
+	Time                               float64            `json:"time"`
+	Length                             float64            `json:"length"`
+	BeginShapeIndex                    int                `json:"begin_shape_index"`
+	EndShapeIndex                      int                `json:"end_shape_index"`
+	Toll                               *bool              `json:"toll,omitempty"`
+	Highway                            *bool              `json:"highway,omitempty"`
+	Rough                              *bool              `json:"rough,omitempty"`
+	Gate                               *bool              `json:"gate,omitempty"`
+	Ferry                              *bool              `json:"ferry,omitempty"`
+	Sign                               *SignResult        `json:"sign,omitempty"`
+	RoundaboutExitCount                *int               `json:"roundabout_exit_count,omitempty"`
+	DepartInstruction                  *string            `json:"depart_instruction,omitempty"`
+	VerbalDepartInstruction            *string            `json:"verbal_depart_instruction,omitempty"`
+	ArriveInstruction                  *string            `json:"arrive_instruction,omitempty"`
+	VerbalArriveInstruction            *string            `json:"verbal_arrive_instruction,omitempty"`
+	VerbalMultiCue                     *bool              `json:"verbal_multi_cue,omitempty"`
+	TravelMode                         string             `json:"travel_mode"`
+	TravelType                          string             `json:"travel_type"`
+	BearingBefore                      int                `json:"bearing_before"`
+	BearingAfter                       int                `json:"bearing_after"`
+	Lanes                              []TurnLaneResult   `json:"lanes,omitempty"`
+}
+
+type SummaryResult struct {
+	Time        float64       `json:"time"`
+	Length      float64       `json:"length"`
+	HasToll     bool          `json:"has_toll"`
+	HasHighway  bool          `json:"has_highway"`
+	HasFerry    bool          `json:"has_ferry"`
+	BoundingBox *BBoxResult   `json:"bounding_box,omitempty"`
+}
+
+type BBoxResult struct {
+	MinLat float64 `json:"min_lat"`
+	MinLon float64 `json:"min_lon"`
+	MaxLat float64 `json:"max_lat"`
+	MaxLon float64 `json:"max_lon"`
+}
+
+type SignResult struct {
+	ExitNumberElements []SignElementResult `json:"exit_number_elements,omitempty"`
+	ExitBranchElements []SignElementResult `json:"exit_branch_elements,omitempty"`
+	ExitTowardElements []SignElementResult `json:"exit_toward_elements,omitempty"`
+	ExitNameElements   []SignElementResult `json:"exit_name_elements,omitempty"`
+}
+
+type SignElementResult struct {
+	Text            string `json:"text"`
+	ConsecutiveCount *int  `json:"consecutive_count,omitempty"`
+}
+
+type TurnLaneResult struct {
+	Directions int     `json:"directions"`
+	Valid      *uint32 `json:"valid,omitempty"`
+	Active     *uint32 `json:"active,omitempty"`
 }
 
 // SearchItem is one result within a successful search or reverse-geocode job.

@@ -40,6 +40,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/region/search-radius", middleware.RequireVerifiedUser(http.HandlerFunc(region.SearchRadius)))
 	mux.Handle("POST /api/v1/region/find-crossing-locations", middleware.RequireVerifiedUser(http.HandlerFunc(region.FindCrossingLocations)))
 	mux.Handle("POST /api/v1/region/find-region-path", middleware.RequireVerifiedUser(http.HandlerFunc(region.FindRegionPath)))
+	mux.Handle("POST /api/v1/region/find-route-region-paths", middleware.RequireVerifiedUser(http.HandlerFunc(region.FindRouteRegionPaths)))
 
 	// Tiles — HTTP reverse proxy, requires verified user
 	mux.Handle("/v1/tiles/", middleware.RequireVerifiedUser(s.tiles))
