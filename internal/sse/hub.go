@@ -36,7 +36,7 @@ func (h *Hub) WaitForResult(ctx context.Context, w http.ResponseWriter, jobID st
 	}
 
 	sub := h.redis.Subscribe(ctx, "sw:done:"+jobID)
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 
 	// Check if the worker already finished before we subscribed.
 	if existing, err := h.redis.Get(ctx, "sw:result:"+jobID).Result(); err == nil {
@@ -67,5 +67,5 @@ func (h *Hub) WaitForResult(ctx context.Context, w http.ResponseWriter, jobID st
 }
 
 func writeSSEEvent(w http.ResponseWriter, event, data string) {
-	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }

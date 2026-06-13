@@ -60,7 +60,7 @@ func NewAuthHandler(client AuthClient, keys KeysProvider, l *log.Logger) *AuthHa
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -69,11 +69,6 @@ func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
-}
-
-func isSecureRequest(r *http.Request) bool {
-	secure, _ := security.GetSecure(r.Context())
-	return secure
 }
 
 func setAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refreshToken string) {
@@ -185,8 +180,9 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			RefreshToken string `json:"refresh_token"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
-		refreshToken = req.RefreshToken
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			refreshToken = req.RefreshToken
+		}
 	}
 
 	if err := h.client.Logout(refreshToken); err != nil {
