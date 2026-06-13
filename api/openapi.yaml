@@ -1,0 +1,1670 @@
+openapi: "3.0.3"
+
+info:
+  title: SwayRider API
+  version: "1.0"
+  description: |
+    Public HTTP API served by `swayrider-api` on port **8080**. It is the single
+    entry point for mobile and web clients. Requests are proxied to backend
+    microservices (authservice, regionservice, routerservice, searchservice,
+    tilesservice) behind the scenes.
+
+    ### Authentication
+
+    Endpoints that require authentication accept the access token (JWT RS256,
+    15-minute TTL) either as:
+    - `Authorization: Bearer <token>` header, or
+    - `access_token` HTTP-only cookie (base64-encoded, set by login/refresh).
+
+    The refresh token (64-byte hex, 30-day TTL, single-use) is accepted via the
+    `refresh_token` HTTP-only cookie or in the request body.
+
+    ### SSE Protocol
+
+    The `/api/v1/route`, `/api/v1/search`, and `/api/v1/search/reverse` endpoints
+    deliver results asynchronously via **Server-Sent Events** (`text/event-stream`).
+
+    Event types:
+
+    | Event | Data |
+    |---|---|
+    | `queued` | `{"job_id":"…","queue_position":N}` |
+    | `result` | Operation-specific result object |
+    | `error` | `{"error":"…"}` |
+
+servers:
+  - url: https://api.swayrider.com
+    description: Production
+
+tags:
+  - name: health
+    description: Service health
+  - name: auth
+    description: Authentication and user management
+  - name: route
+    description: Route planning (async SSE)
+  - name: search
+    description: Geocoding (async SSE)
+  - name: region
+    description: Spatial region queries
+  - name: tiles
+    description: Vector tile serving (reverse proxy to tilesservice)
+  - name: admin
+    description: Admin-only endpoints
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: access_token
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    LatLon:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+      required: [lat, lon]
+
+    BoundingBox:
+      type: object
+      properties:
+        bottom_left:
+          $ref: '#/components/schemas/LatLon'
+        top_right:
+          $ref: '#/components/schemas/LatLon'
+      required: [bottom_left, top_right]
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT RS256 access token (15-minute TTL)
+        refresh_token:
+          type: string
+          description: Hex-encoded 64-byte refresh token (30-day TTL, single-use)
+      required: [access_token, refresh_token]
+
+    UserInfo:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        is_verified:
+          type: boolean
+        is_admin:
+          type: boolean
+        account_type:
+          type: string
+          example: free
+      required: [user_id, email, is_verified, is_admin, account_type]
+
+    SearchItem:
+      type: object
+      properties:
+        label:
+          type: string
+        locality:
+          type: string
+        region:
+          type: string
+        country:
+          type: string
+        confidence:
+          type: number
+          format: double
+        layer:
+          type: string
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+        street:
+          type: string
+        houseNumber:
+          type: string
+        id:
+          type: string
+        localAdmin:
+          type: string
+        countryCode:
+          type: string
+        name:
+          type: string
+
+    RegionList:
+      type: object
+      properties:
+        core_regions:
+          type: array
+          items:
+            type: string
+        extended_regions:
+          type: array
+          items:
+            type: string
+      required: [core_regions, extended_regions]
+
+    Waypoint:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+        type:
+          type: string
+          enum: [break, through, via]
+          default: break
+          description: |
+            `break` — split route into legs, allow u-turns (default).
+            `through` — no u-turns, no leg split.
+            `via` — allow u-turns, no leg split.
+      required: [lat, lon]
+
+    RouteOptions:
+      type: object
+      properties:
+        avoidTollRoads:
+          type: boolean
+        avoidHighways:
+          type: boolean
+        avoidFerries:
+          type: boolean
+        scenicPreference:
+          type: integer
+        highwayAvoidance:
+          type: integer
+        tollAvoidance:
+          type: integer
+        unpavedHandling:
+          type: string
+
+    CrossingConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [simple, advanced]
+          default: simple
+        road_type_order:
+          type: array
+          items:
+            type: string
+            enum: [MOTORWAY, TRUNK, PRIMARY, SECONDARY]
+        road_type_delta:
+          type: integer
+        drop_distance:
+          type: integer
+
+    CrossingLocation:
+      type: object
+      properties:
+        from_region:
+          type: string
+        to_region:
+          type: string
+        road_type:
+          type: string
+        location:
+          $ref: '#/components/schemas/LatLon'
+        osm_id:
+          type: integer
+          format: int64
+
+    ServiceClient:
+      type: object
+      properties:
+        client_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+
+    Invite:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+        registered:
+          type: boolean
+
+paths:
+  /health:
+    get:
+      summary: Service health check
+      operationId: getHealth
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: swayrider-api
+
+  /api/openapi.yaml:
+    get:
+      summary: OpenAPI specification
+      operationId: getOpenAPISpec
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.0 YAML specification
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /api/v1/auth/login:
+    post:
+      summary: Login
+      operationId: login
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                remember_me:
+                  type: boolean
+                  default: false
+              required: [email, password]
+      responses:
+        '200':
+          description: Login successful. Sets `access_token` and `refresh_token` HTTP-only cookies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/register:
+    post:
+      summary: Register a new user account
+      operationId: register
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                verification_url:
+                  type: string
+                  format: uri
+              required: [email, password, verification_url]
+      responses:
+        '200':
+          description: User created. Verification email will be sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Refresh access token
+      description: |
+        Exchange a refresh token for a new access + refresh token pair (token rotation).
+        Accepts the refresh token from the `refresh_token` cookie (set by login) or
+        from the request body.
+      operationId: refreshToken
+      tags: [auth]
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+                  description: Required if not using the cookie
+                remember_me:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Token refreshed. Sets updated cookies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          description: Missing refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid, expired, or revoked refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/logout:
+    post:
+      summary: Logout
+      description: |
+        Invalidate the current refresh token. Accepts token from the `refresh_token`
+        cookie or request body. Clears auth cookies.
+      operationId: logout
+      tags: [auth]
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '204':
+          description: Logged out
+        '401':
+          description: Invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/request-password-reset:
+    post:
+      summary: Request a password reset email
+      description: Always returns 204 to prevent email enumeration.
+      operationId: requestPasswordReset
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                reset_url:
+                  type: string
+                  format: uri
+              required: [email, reset_url]
+      responses:
+        '204':
+          description: Request accepted (email sent if account exists)
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/reset-password:
+    post:
+      summary: Complete password reset
+      operationId: resetPassword
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                token:
+                  type: string
+                new_password:
+                  type: string
+                  format: password
+              required: [user_id, token, new_password]
+      responses:
+        '200':
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid or expired reset token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/verify-email:
+    post:
+      summary: Request a new verification email
+      operationId: verifyEmail
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                verification_url:
+                  type: string
+                  format: uri
+              required: [email, verification_url]
+      responses:
+        '204':
+          description: Verification email sent
+
+  /api/v1/auth/change-password:
+    post:
+      summary: Change the authenticated user's password
+      operationId: changePassword
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                old_password:
+                  type: string
+                  format: password
+                new_password:
+                  type: string
+                  format: password
+              required: [old_password, new_password]
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Wrong current password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/check-password-strength:
+    post:
+      summary: Check password strength
+      operationId: checkPasswordStrength
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required: [password]
+      responses:
+        '200':
+          description: Strength result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_strong:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/v1/auth/public-keys:
+    get:
+      summary: Get JWT RS256 public verification keys
+      description: Returns the in-memory public key cache. No downstream gRPC call.
+      operationId: getPublicKeys
+      tags: [auth]
+      security: []
+      responses:
+        '200':
+          description: Public keys (PEM-encoded)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: string
+                    example:
+                      - "-----BEGIN PUBLIC KEY-----\nMIIBIj...\n-----END PUBLIC KEY-----"
+
+  /api/v1/auth/whoami:
+    get:
+      summary: Get current user info (from authservice)
+      description: Makes a gRPC call to authservice. Requires a valid JWT.
+      operationId: whoAmI
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/me:
+    get:
+      summary: Get current user claims (from JWT, no gRPC call)
+      operationId: getMe
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Claims parsed from the JWT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  email:
+                    type: string
+                    format: email
+                  email_verified:
+                    type: boolean
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/route:
+    post:
+      summary: Plan a route (async SSE)
+      description: |
+        Plan a route between two coordinates. Results are delivered via
+        **Server-Sent Events** (`text/event-stream`).
+
+        SSE events:
+        - `queued` — `{"job_id":"…","queue_position":N}`
+        - `result` — Route result with `trip`, `legs`, `maneuvers`, `summary`
+        - `error` — `{"error":"…"}`
+      operationId: planRoute
+      tags: [route]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  $ref: '#/components/schemas/LatLon'
+                to:
+                  $ref: '#/components/schemas/LatLon'
+                waypoints:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Waypoint'
+                vehicle:
+                  type: string
+                  enum: [car, motorscooter, motorcycle]
+                unit:
+                  type: string
+                  example: kilometers
+                language:
+                  type: string
+                  example: en-US
+                options:
+                  $ref: '#/components/schemas/RouteOptions'
+              required: [from, to, vehicle]
+      responses:
+        '200':
+          description: SSE stream. Connection stays open until `result` or `error` event is sent.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Queue full or rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal error or downstream failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/search:
+    post:
+      summary: Forward geocoding (async SSE)
+      description: |
+        Search for locations by text query. Results delivered via SSE.
+
+        SSE events:
+        - `queued` — `{"job_id":"…","queue_position":N}`
+        - `result` — Array of `SearchItem`
+        - `error` — `{"error":"…"}`
+      operationId: search
+      tags: [search]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                viewport:
+                  type: object
+                  properties:
+                    bottomLeft:
+                      $ref: '#/components/schemas/LatLon'
+                    topRight:
+                      $ref: '#/components/schemas/LatLon'
+                focusPoint:
+                  $ref: '#/components/schemas/LatLon'
+                size:
+                  type: integer
+                  default: 10
+                language:
+                  type: string
+                  example: en
+              required: [text]
+      responses:
+        '200':
+          description: |
+            SSE stream. Each event has an `event` field and a JSON `data` field.
+            The `result` event delivers an array of `SearchItem`.
+          content:
+            text/event-stream:
+              schema:
+                description: Event data payload — shape depends on the event type
+                oneOf:
+                  - description: queued event data
+                    type: object
+                    properties:
+                      job_id:
+                        type: string
+                      queue_position:
+                        type: integer
+                  - description: result event data
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchItem'
+                  - description: error event data
+                    allOf:
+                      - $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/search/reverse:
+    post:
+      summary: Reverse geocoding (async SSE)
+      description: |
+        Find addresses for a coordinate. Results delivered via SSE.
+
+        SSE `result` event data is an array of `SearchItem`.
+      operationId: reverseGeocode
+      tags: [search]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lat:
+                  type: number
+                  format: double
+                lon:
+                  type: number
+                  format: double
+                size:
+                  type: integer
+                  default: 5
+                language:
+                  type: string
+                  example: en
+              required: [lat, lon]
+      responses:
+        '200':
+          description: |
+            SSE stream. Each event has an `event` field and a JSON `data` field.
+            The `result` event delivers an array of `SearchItem`.
+          content:
+            text/event-stream:
+              schema:
+                description: Event data payload — shape depends on the event type
+                oneOf:
+                  - description: queued event data
+                    type: object
+                    properties:
+                      job_id:
+                        type: string
+                      queue_position:
+                        type: integer
+                  - description: result event data
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchItem'
+                  - description: error event data
+                    allOf:
+                      - $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/region/search-point:
+    post:
+      summary: Find regions containing a coordinate
+      operationId: regionSearchPoint
+      tags: [region]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                location:
+                  $ref: '#/components/schemas/LatLon'
+                include_extended:
+                  type: boolean
+                  default: false
+              required: [location]
+      responses:
+        '200':
+          description: Regions containing the point
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionList'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/region/search-box:
+    post:
+      summary: Find regions intersecting a bounding box
+      operationId: regionSearchBox
+      tags: [region]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                box:
+                  $ref: '#/components/schemas/BoundingBox'
+                include_extended:
+                  type: boolean
+                  default: false
+              required: [box]
+      responses:
+        '200':
+          description: Regions intersecting the box
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionList'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/region/search-radius:
+    post:
+      summary: Find regions within a radius of a point
+      operationId: regionSearchRadius
+      tags: [region]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                location:
+                  $ref: '#/components/schemas/LatLon'
+                radius_km:
+                  type: number
+                  format: double
+                include_extended:
+                  type: boolean
+                  default: false
+              required: [location, radius_km]
+      responses:
+        '200':
+          description: Regions within the radius
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionList'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/region/find-crossing-locations:
+    post:
+      summary: Find border crossings between two regions
+      operationId: findCrossingLocations
+      tags: [region]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from_region:
+                  type: string
+                to_region:
+                  type: string
+                from_location:
+                  $ref: '#/components/schemas/LatLon'
+                to_location:
+                  $ref: '#/components/schemas/LatLon'
+                limit:
+                  type: integer
+                  default: 3
+                config:
+                  $ref: '#/components/schemas/CrossingConfig'
+              required: [from_region, to_region, from_location, to_location]
+      responses:
+        '200':
+          description: Border crossing locations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  crossings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CrossingLocation'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/region/find-region-path:
+    post:
+      summary: Find a contiguous region path between two regions
+      operationId: findRegionPath
+      tags: [region]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from_region:
+                  type: string
+                to_region:
+                  type: string
+              required: [from_region, to_region]
+      responses:
+        '200':
+          description: Ordered list of region codes from source to destination
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/region/find-route-region-paths:
+    post:
+      summary: Find corridor-constrained region paths for a polyline
+      operationId: findRouteRegionPaths
+      tags: [region]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                waypoints:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/LatLon'
+                width_km:
+                  type: number
+                  format: double
+              required: [waypoints, width_km]
+      responses:
+        '200':
+          description: All corridor-constrained region path combinations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: string
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/tiles/{path}:
+    get:
+      summary: Vector tile reverse proxy
+      description: |
+        Reverse proxy to `tilesservice`. Injects a service client token with
+        `tiles:serve` scope. The full path is forwarded to tilesservice.
+
+        Common sub-paths:
+        - `ping` — health check (public on upstream)
+        - `styles` — list map styles
+        - `styles/{name}` — serve a MapLibre GL style
+        - `{tileset}/{z}/{x}/{y}` — serve an MVT vector tile
+      operationId: getTile
+      tags: [tiles]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Path forwarded to tilesservice (everything after `/v1/tiles/`)
+      responses:
+        '200':
+          description: Response from tilesservice (binary tile, JSON style, or text)
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/create-admin:
+    post:
+      summary: Create an admin user
+      operationId: createAdmin
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+              required: [email, password]
+      responses:
+        '200':
+          description: Admin created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/change-account-type:
+    post:
+      summary: Change a user's account type
+      operationId: changeAccountType
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                accountType:
+                  type: string
+                  example: premium
+                  description: Free-form string (e.g. `free`, `standard`, `premium`)
+              required: [userId, accountType]
+      responses:
+        '200':
+          description: Account type updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/whois:
+    post:
+      summary: Look up a user by email or user ID
+      operationId: whoIs
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                userId:
+                  type: string
+                  format: uuid
+              description: Provide either `email` or `userId`
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+        '400':
+          description: Neither email nor userId provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/create-service-client:
+    post:
+      summary: Register a new service-to-service client
+      operationId: createServiceClient
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+              required: [name]
+      responses:
+        '200':
+          description: Service client created. Secret is shown only once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_id:
+                    type: string
+                  client_secret:
+                    type: string
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/delete-service-client:
+    post:
+      summary: Remove a service client
+      operationId: deleteServiceClient
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clientId:
+                  type: string
+              required: [clientId]
+      responses:
+        '200':
+          description: Service client deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/list-service-clients:
+    get:
+      summary: List registered service clients
+      operationId: listServiceClients
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated list of service clients
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceClient'
+                  num_clients:
+                    type: integer
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/invite-user:
+    post:
+      summary: Add an email to the registration invite list
+      description: Only effective when `REGISTRATION_MODE=invite_only`.
+      operationId: inviteUser
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+              required: [email]
+      responses:
+        '200':
+          description: User invited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/revoke-invite:
+    post:
+      summary: Remove an email from the registration invite list
+      operationId: revokeInvite
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+              required: [email]
+      responses:
+        '200':
+          description: Invite revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/admin/list-invites:
+    get:
+      summary: List pending registration invites
+      operationId: listInvites
+      tags: [admin]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: registered
+          in: query
+          schema:
+            type: boolean
+          description: Filter by registration status
+      responses:
+        '200':
+          description: Paginated list of invites
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invites:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invite'
+                  num_invites:
+                    type: integer
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

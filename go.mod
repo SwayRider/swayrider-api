@@ -12,6 +12,7 @@ require (
 	github.com/swayrider/protos v0.1.2
 	github.com/swayrider/swlib v0.1.5
 	google.golang.org/grpc v1.80.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
