@@ -395,7 +395,7 @@ func toSignElementResult(e *routerv1.SignElement) queue.SignElementResult {
 }
 
 func writeSSEEvent(w http.ResponseWriter, event, data string) {
-	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }
 
 // BreakerExecutor is satisfied by *circuitbreaker.Registry.

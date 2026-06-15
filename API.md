@@ -1,5 +1,9 @@
 # SwayRider API
 
+> **Note:** `api/openapi.yaml` is the authoritative machine-readable specification for this API.
+> It is served at `GET /api/openapi.yaml` by the running service. This document is a
+> human-friendly companion — when there is a discrepancy, the YAML is correct.
+
 ## Overview
 
 The public-facing HTTP API is served by `swayrider-api` on port **8080**. It is the single entry point for mobile and web clients. Requests are reverse-proxied to backend microservices (authservice, regionservice, routerservice, searchservice, tilesservice) behind the scenes.

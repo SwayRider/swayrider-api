@@ -8,6 +8,9 @@ import (
 )
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
+	// OpenAPI spec
+	mux.HandleFunc("GET /api/openapi.yaml", handlers.OpenAPISpec)
+
 	// Health
 	mux.HandleFunc("GET /health", handlers.Health)
 
