@@ -130,7 +130,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authClt, keyCache, lg)
 	regionHandler := handlers.NewRegionHandler(regionClt, tokenMgr.Token)
 	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
-	searchHandler := handlers.NewSearchHandler(producer, hub, lg)
+	searchHandler := handlers.NewSearchHandler(producer, hub, searchClt, tokenMgr.Token, breakers, lg)
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
 	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, 8000)
 
