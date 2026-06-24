@@ -46,8 +46,12 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/swayrider/grpcclients v0.1.4 h1:tnVBrOssaPv6HCplJZVvKHXP2UVMMcBbm8aJbcemsEA=
 github.com/swayrider/grpcclients v0.1.4/go.mod h1:HQJA1XIxgFqNpg5qrIOS82c6XDDjgZyiKt1EznGzDy8=
+github.com/swayrider/grpcclients v0.1.5 h1:slQEbW429lf5C+UCihs0C2uzkBkOpPMyNtnViykSkMo=
+github.com/swayrider/grpcclients v0.1.5/go.mod h1:hgBtrEv3Y3O1zfciLX20VmIZLF1Cc8O0jvaN5UBTei0=
 github.com/swayrider/protos v0.1.2 h1:YJ+f3Dty8rvvL/2tm73TLOcfeiUHZpi2EDV9YIplq9c=
 github.com/swayrider/protos v0.1.2/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
+github.com/swayrider/protos v0.1.3 h1:HMtaLeAKeAeNS49x0uopo8WpQMk0tw+SV3OQTEYG5Ag=
+github.com/swayrider/protos v0.1.3/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
 github.com/swayrider/swlib v0.1.5 h1:Fl68c8dbDSQ7aam6baPWmrpZcHz+w/skkn0/tfGm4FY=
 github.com/swayrider/swlib v0.1.5/go.mod h1:Iv5ojh35cHoGmjNdvPPovW3i8sQBtQXmK9e2rTq4sRc=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
