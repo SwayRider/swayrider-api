@@ -13,12 +13,13 @@ The public-facing HTTP API is served by `swayrider-api` on port **8080**. It is 
 Every request passes through this middleware pipeline (innermost first):
 
 ```
-mux  →  RateLimit  →  Logging  →  Auth  →  CORS
+mux  →  BodyLimit  →  RateLimit  →  Logging  →  Auth  →  CORS
 ```
 
 | Middleware | Responsibility |
 |---|---|
-| **CORS** | Configurable allowed origins, methods (`GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`), headers (`Authorization`, `Content-Type`), credentials allowed |
+| **CORS** | Configurable allowed origins, methods (`GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`), headers (`Authorization`, `Content-Type`), credentials allowed. `CORS_ALLOWED_ORIGINS` entries are whitespace-trimmed, and a bare `*` or empty entry is rejected at startup (wildcard + credentials is an invalid or unsafe combination) |
+| **BodyLimit** | Bounds every request body to `MAX_BODY_BYTES` (default 1 MiB); larger bodies are rejected with `413 Payload Too Large` |
 | **Auth** | Extracts JWT from `Authorization: Bearer` header or `access_token` cookie and stores claims in context. Does **not** reject unauthenticated requests — individual handlers or downstream middleware decide. Also extracts `refresh_token` cookie, client IP, and secure flag. Client IP comes from `X-Forwarded-For` and the secure flag from `X-Forwarded-Proto`, but **only** when the request's immediate peer is a proxy in `TRUSTED_PROXIES`; otherwise the peer address (`RemoteAddr`) is used and the request is treated as insecure — forged headers can never spoof rate-limit keys or cookie security. |
 | **Logging** | Logs every request: method, path, status code, duration (ms), IP, user ID |
 | **RateLimit** | Redis-based sliding window rate limiting (60s window). If Redis is unreachable the limiter **degrades** instead of failing open: it serves requests from an in-process sliding window with the same limits (`RATE_LIMIT_DEGRADE_MODE=memory`, default) or rejects every limited request with 429 (`deny`), probing Redis periodically for recovery. A limiter error in this middleware always fails closed (429). |

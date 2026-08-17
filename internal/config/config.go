@@ -52,6 +52,10 @@ type Config struct {
 
 	CookieNamespace string
 
+	// MaxBodyBytes caps the request body size of every endpoint so an
+	// arbitrarily large JSON body can't exhaust memory.
+	MaxBodyBytes int64
+
 	// ServiceTokenRefreshTimeout hard-bounds a single service-token refresh
 	// attempt so a stuck gRPC call can never wedge the background refresh
 	// loop (and with it every downstream call).
@@ -104,6 +108,8 @@ func Load() *Config {
 		TrustedProxies: env.GetAsStringArr("TRUSTED_PROXIES", ""),
 
 		CookieNamespace: env.Get("COOKIE_NAMESPACE", "com.hevanto-it.swayrider"),
+
+		MaxBodyBytes: int64(env.GetAsInt("MAX_BODY_BYTES", 1048576)), // 1 MiB
 
 		ServiceTokenRefreshTimeout: time.Duration(env.GetAsInt("SERVICE_TOKEN_REFRESH_TIMEOUT", 15)) * time.Second,
 		JWTKeysRefreshTimeout:      time.Duration(env.GetAsInt("JWT_KEYS_REFRESH_TIMEOUT", 15)) * time.Second,

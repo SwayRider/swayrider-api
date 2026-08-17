@@ -134,13 +134,19 @@ Both refresh loops (service token, JWT public keys) bound every fetch attempt wi
 
 When Redis is down, the rate limiter **does not silently disable throttling** (it previously failed open on every error, which the security review flagged). It degrades: after `RATE_LIMIT_DEGRADE_THRESHOLD` consecutive failures it either limits against an in-process sliding window with the same limits (`memory`, default — state is per-instance, so effective limits multiply by replica count while degraded) or rejects every limited request with 429 (`deny`). Redis is probed on `RATE_LIMIT_REDIS_PROBE_SECONDS` and the limiter recovers automatically. State transitions (degrade/recover) are logged; a limiter error in the middleware fails closed (429) rather than letting the request through unthrottled.
 
+### Request body limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_BODY_BYTES` | `1048576` (1 MiB) | Maximum request body size. Larger bodies are rejected with `413 Payload Too Large` before they can be read into memory |
+
 ### CORS
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins |
 
-`AllowCredentials` is always `true` (required for cookie-based auth). Wildcard origins are not supported.
+`AllowCredentials` is always `true` (required for cookie-based auth). Wildcard origins are not supported — a bare `*` (or empty) entry is rejected at startup with a fatal error rather than silently enabling credentialed requests from any origin.
 
 ### Trusted proxies
 
