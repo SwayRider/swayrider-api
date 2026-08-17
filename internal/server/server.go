@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -77,15 +78,22 @@ func (s *Server) Run(ctx context.Context) {
 		UserExpensive: s.cfg.RateLimitUserExpensive,
 	}
 
-	// Middleware chain (innermost first): mux → rateLimit → logging → auth → cors
+	// Middleware chain (innermost first): mux → bodyLimit → rateLimit → logging → auth → cors
 	handler := middleware.Auth(s.keyCache, parseTrustedProxies(s.cfg.TrustedProxies, lg))(
 		middleware.Logging(s.l)(
-			middleware.RateLimit(s.limiter, rateCfg, s.l)(mux),
+			middleware.RateLimit(s.limiter, rateCfg, s.l)(
+				middleware.BodyLimit(s.cfg.MaxBodyBytes)(mux),
+			),
 		),
 	)
 
+	allowedOrigins, err := normalizeCORSOrigins(s.cfg.CORSAllowedOrigins)
+	if err != nil {
+		lg.Fatalf("invalid CORS configuration: %v", err)
+	}
+
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   s.cfg.CORSAllowedOrigins,
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -121,6 +129,30 @@ func (s *Server) Run(ctx context.Context) {
 	} else {
 		lg.Infoln("shutdown complete")
 	}
+}
+
+// normalizeCORSOrigins trims whitespace from each configured origin (the env
+// helper splits on commas without trimming, so "a, b" would otherwise produce
+// a never-matching " b" entry) and validates the list.
+//
+// AllowCredentials is always enabled, so a bare "*" — which rs/cors would
+// turn into "reflect every origin with credentials" — or an empty entry is a
+// misconfiguration. It fails startup rather than silently opening credentialed
+// cross-origin access. Explicit patterns (e.g. "https://*.example.com") are
+// allowed; rs/cors scopes them to the pattern.
+func normalizeCORSOrigins(origins []string) ([]string, error) {
+	out := make([]string, 0, len(origins))
+	for _, o := range origins {
+		o = strings.TrimSpace(o)
+		if o == "" {
+			return nil, errors.New("CORS_ALLOWED_ORIGINS contains an empty entry")
+		}
+		if o == "*" {
+			return nil, errors.New("CORS_ALLOWED_ORIGINS must not contain \"*\" while AllowCredentials is enabled")
+		}
+		out = append(out, o)
+	}
+	return out, nil
 }
 
 // parseTrustedProxies converts the configured TRUSTED_PROXIES CIDRs into
