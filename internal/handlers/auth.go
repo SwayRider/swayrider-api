@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -119,11 +121,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		authclient.ClientInfo{IP: ip},
 	)
 	if err != nil {
-		lg.Warnf("login failed email=%s ip=%s err=%v", req.Email, ip, err)
+		lg.Warnf("login failed email_hash=%s ip=%s err=%v", emailHash(req.Email), ip, err)
 		writeJSON(w, grpcStatus(err), errBody(err))
 		return
 	}
-	lg.Infof("login ok email=%s ip=%s", req.Email, ip)
+	lg.Infof("login ok email_hash=%s ip=%s", emailHash(req.Email), ip)
 	setAuthCookies(w, r, accessToken, refreshToken)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"access_token":  accessToken,
@@ -341,6 +343,17 @@ func (h *AuthHandler) PublicKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"keys": h.keys.Keys(),
 	})
+}
+
+// emailHash returns a stable, non-reversible fingerprint of an email address
+// for logs. Raw addresses are never written to logs — they are PII, and a
+// failed-login log would otherwise double as an account-existence enumeration
+// trail for anyone with log access. The deterministic hash keeps repeated
+// attempts against the same account correlatable for forensics without
+// revealing the address.
+func emailHash(email string) string {
+	sum := sha256.Sum256([]byte(email))
+	return fmt.Sprintf("%x", sum[:8])
 }
 
 // --- internal types ---
