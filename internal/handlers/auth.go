@@ -13,9 +13,9 @@ import (
 
 // AuthClient is satisfied by *authclient.Client.
 type AuthClient interface {
-	Login(email, password string, rememberMe bool) (accessToken, refreshToken string, err error)
+	Login(email, password string, rememberMe bool, info ...authclient.ClientInfo) (accessToken, refreshToken string, err error)
 	Register(email, password, verificationUrl string) (userId, message string, err error)
-	Refresh(refreshToken string, rememberMe bool) (newAccessToken, newRefreshToken string, err error)
+	Refresh(refreshToken string, rememberMe bool, info ...authclient.ClientInfo) (newAccessToken, newRefreshToken string, err error)
 	Logout(refreshToken string) error
 	RequestPasswordReset(email, resetUrl string) error
 	ResetPassword(userId, token, newPassword string) (message string, err error)
@@ -106,7 +106,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip, _ := security.GetOrigIp(r.Context())
-	accessToken, refreshToken, err := h.client.Login(req.Email, req.Password, req.RememberMe)
+	accessToken, refreshToken, err := h.client.Login(
+		req.Email, req.Password, req.RememberMe,
+		authclient.ClientInfo{IP: ip},
+	)
 	if err != nil {
 		lg.Warnf("login failed email=%s ip=%s err=%v", req.Email, ip, err)
 		writeJSON(w, grpcStatus(err), errBody(err))
@@ -161,7 +164,11 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newAccess, newRefresh, err := h.client.Refresh(refreshToken, rememberMe)
+	ip, _ := security.GetOrigIp(r.Context())
+	newAccess, newRefresh, err := h.client.Refresh(
+		refreshToken, rememberMe,
+		authclient.ClientInfo{IP: ip},
+	)
 	if err != nil {
 		h.l.Derive(log.WithFunction("Refresh")).Warnf("token refresh failed: %v", err)
 		writeJSON(w, grpcStatus(err), errBody(err))

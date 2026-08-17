@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -76,7 +78,7 @@ func (s *Server) Run(ctx context.Context) {
 	}
 
 	// Middleware chain (innermost first): mux → rateLimit → logging → auth → cors
-	handler := middleware.Auth(s.keyCache)(
+	handler := middleware.Auth(s.keyCache, parseTrustedProxies(s.cfg.TrustedProxies, lg))(
 		middleware.Logging(s.l)(
 			middleware.RateLimit(s.limiter, rateCfg, s.l)(mux),
 		),
@@ -119,4 +121,24 @@ func (s *Server) Run(ctx context.Context) {
 	} else {
 		lg.Infoln("shutdown complete")
 	}
+}
+
+// parseTrustedProxies converts the configured TRUSTED_PROXIES CIDRs into
+// *net.IPNet values. Invalid entries are logged and skipped — an empty result
+// means no proxy headers are trusted, which is the secure default.
+func parseTrustedProxies(cidrs []string, lg *log.Logger) []*net.IPNet {
+	var trusted []*net.IPNet
+	for _, c := range cidrs {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		_, ipnet, err := net.ParseCIDR(c)
+		if err != nil {
+			lg.Errorf("invalid TRUSTED_PROXIES entry %q, ignoring: %v", c, err)
+			continue
+		}
+		trusted = append(trusted, ipnet)
+	}
+	return trusted
 }

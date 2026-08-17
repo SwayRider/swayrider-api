@@ -49,6 +49,8 @@ Client (HTTPS)
       └─ /web/*            → HTTP → authservice :8000
 ```
 
+Only the immediate peer is checked for proxy-header trust, so if additional append-only proxies sit in front of Traefik (e.g. an Apache/nginx), list their CIDRs in `TRUSTED_PROXIES` too for the client IP to resolve past them — the set must only contain proxies you control.
+
 ## Configuration
 
 All configuration is via environment variables. Copy `env.example` to `.env` and fill in the values.
@@ -126,6 +128,14 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 
 `AllowCredentials` is always `true` (required for cookie-based auth). Wildcard origins are not supported.
 
+### Trusted proxies
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRUSTED_PROXIES` | — | Comma-separated CIDRs of reverse proxies (e.g. the Traefik container) whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are honored |
+
+Requests whose immediate peer is inside `TRUSTED_PROXIES` have their client IP read from `X-Forwarded-For` (rightmost non-proxy entry — proxies append) and the cookie `Secure` flag derived from `X-Forwarded-Proto`. Requests from any other peer are treated as direct connections: the headers are ignored and the peer address (`RemoteAddr`) is used, so a client can never spoof the IP used for rate limiting or force insecure cookies. **Empty (default) = trust no one.** In the dev stack, Traefik's container IP is pinned to `10.10.0.2` and `TRUSTED_PROXIES=10.10.0.2/32` is set in `layer-30`; the direct dev port (`34000`) is intentionally *not* trusted — WireGuard dev connections arrive from the docker gateway and are rate-limited by that address.
+
 ## API Reference
 
 ### Health
@@ -143,7 +153,7 @@ curl http://localhost:8080/health
 
 ### Auth — `/api/v1/auth/*`
 
-The gateway proxies these endpoints to authservice over gRPC. On login, register, and refresh it also sets `access_token` and `refresh_token` cookies (web clients); tokens are always returned in the response body too (mobile clients).
+The gateway proxies these endpoints to authservice over gRPC. On login, register, and refresh it also sets `access_token` and `refresh_token` cookies (web clients); tokens are always returned in the response body too (mobile clients). On login and refresh the gateway additionally forwards the resolved client IP (from `TRUSTED_PROXIES`-gated `X-Forwarded-For`) to authservice as `x-orig-ip` gRPC metadata; authservice stores it on the refresh token as a soft anomaly signal for audit — it is logged on mismatch, never used to reject a refresh.
 
 | Endpoint | Method | Auth | Notes |
 |----------|--------|------|-------|

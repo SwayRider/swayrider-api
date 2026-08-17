@@ -36,6 +36,11 @@ type Config struct {
 
 	CORSAllowedOrigins []string
 
+	// TrustedProxies lists the CIDRs of reverse proxies (e.g. Traefik) whose
+	// X-Forwarded-For / X-Forwarded-Proto headers are honored. Empty (the
+	// default) means no proxy headers are trusted — only RemoteAddr is used.
+	TrustedProxies []string
+
 	CookieNamespace string
 }
 
@@ -73,6 +78,8 @@ func Load() *Config {
 		RateLimitUserExpensive: env.GetAsInt("RATE_LIMIT_USER_EXPENSIVE", 20),
 
 		CORSAllowedOrigins: env.GetAsStringArr("CORS_ALLOWED_ORIGINS", "http://localhost:5173"),
+
+		TrustedProxies: env.GetAsStringArr("TRUSTED_PROXIES", ""),
 
 		CookieNamespace: env.Get("COOKIE_NAMESPACE", "com.hevanto-it.swayrider"),
 	}
