@@ -33,12 +33,10 @@ type fakeFetcher struct {
 	validUntil time.Time
 	err        error
 	block      chan struct{}
-	calls      int
 }
 
 func (f *fakeFetcher) GetToken(clientId, clientSecret string, scopes []string) (string, []string, time.Time, error) {
 	f.mu.Lock()
-	f.calls++
 	mode := f.mode
 	block := f.block
 	token, validUntil, err := f.token, f.validUntil, f.err
@@ -64,12 +62,6 @@ func (f *fakeFetcher) set(mode int, token string, validUntil time.Time, err erro
 	f.token = token
 	f.validUntil = validUntil
 	f.err = err
-}
-
-func (f *fakeFetcher) numCalls() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.calls
 }
 
 func newTestManager(f *fakeFetcher) *Manager {

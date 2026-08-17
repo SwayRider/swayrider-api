@@ -12,8 +12,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swayrider-api/internal/queue"
+	log "github.com/swayrider/swlib/logger"
 )
 
 func TestMain(m *testing.M) {
@@ -39,6 +39,14 @@ func storedEnvelope(t *testing.T, userID, result string) string {
 	return string(b)
 }
 
+// seedResult stores a cached result envelope in the in-memory Redis.
+func seedResult(t *testing.T, mr *miniredis.Miniredis, jobID, payload string) {
+	t.Helper()
+	if err := mr.Set("sw:result:"+jobID, payload); err != nil {
+		t.Fatalf("seed result: %v", err)
+	}
+}
+
 func TestResultForUser(t *testing.T) {
 	payload := storedEnvelope(t, "user-1", `{"success":true,"data":{"x":1}}`)
 
@@ -58,7 +66,7 @@ func TestResultForUser(t *testing.T) {
 
 func TestWaitForResult_DeliversOwnedCachedResult(t *testing.T) {
 	h, mr := newTestHub(t)
-	mr.Set("sw:result:job-1", storedEnvelope(t, "user-1", `{"success":true,"data":{"x":1}}`))
+	seedResult(t, mr, "job-1", storedEnvelope(t, "user-1", `{"success":true,"data":{"x":1}}`))
 
 	rec := httptest.NewRecorder()
 	h.WaitForResult(context.Background(), rec, "job-1", "user-1")
@@ -77,7 +85,7 @@ func TestWaitForResult_DeliversOwnedCachedResult(t *testing.T) {
 
 func TestWaitForResult_RefusesCachedResultForOtherUser(t *testing.T) {
 	h, mr := newTestHub(t)
-	mr.Set("sw:result:job-1", storedEnvelope(t, "user-1", `{"success":true,"data":{"x":1}}`))
+	seedResult(t, mr, "job-1", storedEnvelope(t, "user-1", `{"success":true,"data":{"x":1}}`))
 
 	rec := httptest.NewRecorder()
 	h.WaitForResult(context.Background(), rec, "job-1", "user-2")
@@ -93,7 +101,7 @@ func TestWaitForResult_RefusesCachedResultForOtherUser(t *testing.T) {
 
 func TestWaitForResult_RefusesMalformedCachedResult(t *testing.T) {
 	h, mr := newTestHub(t)
-	mr.Set("sw:result:job-1", "not-json")
+	seedResult(t, mr, "job-1", "not-json")
 
 	rec := httptest.NewRecorder()
 	h.WaitForResult(context.Background(), rec, "job-1", "user-1")
@@ -110,7 +118,7 @@ func TestWaitForResult_RefusesMalformedCachedResult(t *testing.T) {
 func TestWaitForResult_DeliversOwnedPublishedResult(t *testing.T) {
 	h, mr := newTestHub(t)
 	pub := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer pub.Close()
+	t.Cleanup(func() { _ = pub.Close() })
 
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
@@ -138,7 +146,7 @@ func TestWaitForResult_DeliversOwnedPublishedResult(t *testing.T) {
 func TestWaitForResult_RefusesPublishedResultForOtherUser(t *testing.T) {
 	h, mr := newTestHub(t)
 	pub := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer pub.Close()
+	t.Cleanup(func() { _ = pub.Close() })
 
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
