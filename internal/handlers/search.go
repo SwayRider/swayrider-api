@@ -227,7 +227,7 @@ func (h *SearchHandler) enqueueAndStream(
 		f.Flush()
 	}
 
-	h.hub.WaitForResult(r.Context(), w, jobID)
+	h.hub.WaitForResult(r.Context(), w, jobID, claims.Subject)
 }
 
 // NewSearchProcessFn returns the worker ProcessFn for search/reverse-geocode jobs.

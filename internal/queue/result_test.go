@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -56,5 +57,34 @@ func TestGrpcErrToJobError_DoesNotLeakRawText(t *testing.T) {
 	je := GrpcErrToJobError(status.Error(codes.Internal, "postgres: constraint violation on table users"))
 	if je.Message == "" || strings.Contains(je.Message, "postgres") {
 		t.Errorf("Message leaks internal detail: %q", je.Message)
+	}
+}
+
+func TestStoredResult_RoundTripCarriesOwner(t *testing.T) {
+	raw, err := json.Marshal(JobResult{
+		Success: true,
+		Data:    json.RawMessage(`{"trip":{"status":0}}`),
+	})
+	if err != nil {
+		t.Fatalf("marshal JobResult: %v", err)
+	}
+
+	envelope, err := json.Marshal(StoredResult{UserID: "user-1", Result: raw})
+	if err != nil {
+		t.Fatalf("marshal StoredResult: %v", err)
+	}
+	if !strings.Contains(string(envelope), `"user_id":"user-1"`) {
+		t.Errorf("envelope does not carry the owner: %s", envelope)
+	}
+
+	var back StoredResult
+	if err := json.Unmarshal(envelope, &back); err != nil {
+		t.Fatalf("unmarshal StoredResult: %v", err)
+	}
+	if back.UserID != "user-1" {
+		t.Errorf("UserID = %q, want %q", back.UserID, "user-1")
+	}
+	if string(back.Result) != string(raw) {
+		t.Errorf("Result = %s, want %s", back.Result, raw)
 	}
 }

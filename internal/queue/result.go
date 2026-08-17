@@ -27,6 +27,16 @@ type JobResult struct {
 	Error   *JobError       `json:"error,omitempty"`
 }
 
+// StoredResult is the envelope written to Redis and published on the done
+// channel: the JobResult plus the ID of the user who submitted the job, so a
+// reader can verify ownership before delivering it. The Result is kept as raw
+// JSON so the client-facing payload is byte-identical to the JobResult the
+// worker produced.
+type StoredResult struct {
+	UserID string          `json:"user_id"`
+	Result json.RawMessage `json:"result"`
+}
+
 // JobError carries a gRPC-style status code and message.
 type JobError struct {
 	Code    int    `json:"code"`

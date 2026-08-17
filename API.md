@@ -781,6 +781,8 @@ The route (`/api/v1/route`) and search (`/api/v1/search`, `/api/v1/search/revers
 2. Server validates auth, enqueues the job, and responds with `Content-Type: text/event-stream`.
 3. Server sends events as the job progresses.
 
+Results are scoped to the submitting user: the gateway verifies the stored result's owner (the authenticated user who enqueued the job) before emitting it, so a result cannot be read via a leaked `job_id`.
+
 ### Event Types
 
 | Event | Description | Data |
