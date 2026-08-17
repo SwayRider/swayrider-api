@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/swayrider/grpcclients/regionclient"
+	log "github.com/swayrider/swlib/logger"
 )
 
 // RegionClient is satisfied by *regionclient.Client.
@@ -21,10 +22,15 @@ type RegionClient interface {
 type RegionHandler struct {
 	client RegionClient
 	token  func() string
+	l      *log.Logger
 }
 
-func NewRegionHandler(client RegionClient, token func() string) *RegionHandler {
-	return &RegionHandler{client: client, token: token}
+func NewRegionHandler(client RegionClient, token func() string, l *log.Logger) *RegionHandler {
+	return &RegionHandler{
+		client: client,
+		token:  token,
+		l:      l.Derive(log.WithComponent("region")),
+	}
 }
 
 func (h *RegionHandler) SearchPoint(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +51,7 @@ func (h *RegionHandler) SearchPoint(w http.ResponseWriter, r *http.Request) {
 		req.IncludeExtended,
 	)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -78,7 +84,7 @@ func (h *RegionHandler) SearchBox(w http.ResponseWriter, r *http.Request) {
 		req.IncludeExtended,
 	)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -104,7 +110,7 @@ func (h *RegionHandler) SearchRadius(w http.ResponseWriter, r *http.Request) {
 		req.IncludeExtended,
 	)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -146,7 +152,7 @@ func (h *RegionHandler) FindCrossingLocations(w http.ResponseWriter, r *http.Req
 		req.Limit,
 	)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, crossings)
@@ -162,7 +168,7 @@ func (h *RegionHandler) FindRegionPath(w http.ResponseWriter, r *http.Request) {
 	}
 	path, err := h.client.FindRegionPath(r.Context(), h.token(), req.FromRegion, req.ToRegion)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": path})
@@ -185,7 +191,7 @@ func (h *RegionHandler) FindRouteRegionPaths(w http.ResponseWriter, r *http.Requ
 	}
 	paths, err := h.client.FindRouteRegionPaths(r.Context(), h.token(), waypoints, req.WidthKm)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"paths": paths})

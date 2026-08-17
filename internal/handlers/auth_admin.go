@@ -24,7 +24,7 @@ func (h *AuthHandler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	userId, message, err := h.client.CreateAdmin(token, req.Email, req.Password)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -48,7 +48,7 @@ func (h *AuthHandler) ChangeAccountType(w http.ResponseWriter, r *http.Request) 
 	}
 	message, err := h.client.ChangeAccountType(token, req.UserId, req.AccountType)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": message})
@@ -81,7 +81,7 @@ func (h *AuthHandler) WhoIs(w http.ResponseWriter, r *http.Request) {
 		return whoAmIUser{userId, email, isVerified, isAdmin, accountType}
 	})
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -107,7 +107,7 @@ func (h *AuthHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := h.client.InviteUser(token, req.Email)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": message})
@@ -127,7 +127,7 @@ func (h *AuthHandler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := h.client.RevokeInvite(token, req.Email)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": message})
@@ -156,7 +156,7 @@ func (h *AuthHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
 		return inviteResult{id, email, createdAt, reg}
 	})
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	out := make([]map[string]any, len(invites))
@@ -190,7 +190,7 @@ func (h *AuthHandler) CreateServiceClient(w http.ResponseWriter, r *http.Request
 	}
 	clientId, clientSecret, err := h.client.CreateServiceClient(token, req.Name, req.Description, req.Scopes)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -213,7 +213,7 @@ func (h *AuthHandler) DeleteServiceClient(w http.ResponseWriter, r *http.Request
 	}
 	message, err := h.client.DeleteServiceClient(token, req.ClientId)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": message})
@@ -237,7 +237,7 @@ func (h *AuthHandler) ListServiceClients(w http.ResponseWriter, r *http.Request)
 		return serviceClientResult{clientId, name, description, scopes}
 	})
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	out := make([]map[string]any, len(clients))
