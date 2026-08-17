@@ -17,8 +17,8 @@ There is no gRPC port. `swayrider-api` calls downstream services over gRPC but d
 - **Circuit breakers** — one per downstream service; opens after 5 consecutive failures
 - **Auth proxy** — `POST /api/v1/auth/*` → gRPC → authservice; sets/clears `access_token` and `refresh_token` cookies for web clients; returns tokens in the response body for mobile clients
 - **Region proxy** — `POST /api/v1/region/*` → gRPC → regionservice (public endpoints, no auth required)
-- **Tiles proxy** — `/v1/tiles/*` → HTTP reverse proxy → tilesservice
-- **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server (strips `/web` prefix)
+- **Tiles proxy** — `/v1/tiles/*` → HTTP reverse proxy → tilesservice; user cookies are not forwarded — the gateway injects its own service token
+- **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server (strips `/web` prefix); only the `access_token` cookie is forwarded (authservice's static pages read it to render logged-in state), all other cookies are dropped
 - **CORS** — configured via `CORS_ALLOWED_ORIGINS`; `AllowCredentials: true` for cookie-based web clients
 
 ### Dependencies
