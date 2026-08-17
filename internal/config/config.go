@@ -12,6 +12,13 @@ type Config struct {
 
 	AuthServiceHost   string
 	AuthServicePort   int
+
+	// AuthServiceWebPort / AuthServiceWebPathPrefix describe where authservice's
+	// static web server (WEB_PORT / WEB_PATH_PREFIX) mounts its pages. The
+	// gateway's public /web namespace is mapped onto them by the web proxy, so
+	// changing authservice's prefix must be mirrored here.
+	AuthServiceWebPort       int
+	AuthServiceWebPathPrefix string
 	RouterServiceHost string
 	RouterServicePort int
 	SearchServiceHost string
@@ -73,6 +80,9 @@ func Load() *Config {
 
 		AuthServiceHost:   env.Get("AUTHSERVICE_HOST", "localhost"),
 		AuthServicePort:   env.GetAsInt("AUTHSERVICE_PORT", 8081),
+
+		AuthServiceWebPort:       env.GetAsInt("AUTHSERVICE_WEB_PORT", 8000),
+		AuthServiceWebPathPrefix: env.Get("AUTHSERVICE_WEB_PATH_PREFIX", "/web"),
 		RouterServiceHost: env.Get("ROUTERSERVICE_HOST", "localhost"),
 		RouterServicePort: env.GetAsInt("ROUTERSERVICE_PORT", 8081),
 		SearchServiceHost: env.Get("SEARCHSERVICE_HOST", "localhost"),

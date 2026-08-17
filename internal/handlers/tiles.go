@@ -10,6 +10,7 @@ import (
 func NewTilesProxy(host string, port int, token func() string) http.Handler {
 	target, _ := url.Parse(fmt.Sprintf("http://%s:%d", host, port))
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = newProxyTransport()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r2 := r.Clone(r.Context())
 		// The gateway authenticates tile requests itself (RequireVerifiedUser)

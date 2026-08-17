@@ -18,7 +18,7 @@ There is no gRPC port. `swayrider-api` calls downstream services over gRPC but d
 - **Auth proxy** — `POST /api/v1/auth/*` → gRPC → authservice; sets/clears `access_token` and `refresh_token` cookies for web clients; returns tokens in the response body for mobile clients
 - **Region proxy** — `POST /api/v1/region/*` → gRPC → regionservice (public endpoints, no auth required)
 - **Tiles proxy** — `/v1/tiles/*` → HTTP reverse proxy → tilesservice; user cookies are not forwarded — the gateway injects its own service token
-- **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server (strips `/web` prefix); only the `access_token` cookie is forwarded (authservice's static pages read it to render logged-in state), all other cookies are dropped
+- **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server; the gateway's `/web` namespace is mapped onto authservice's own `WEB_PATH_PREFIX` (see `AUTHSERVICE_WEB_PATH_PREFIX` below); only the `access_token` cookie is forwarded (authservice's static pages read it to render logged-in state), all other cookies are dropped
 - **CORS** — configured via `CORS_ALLOWED_ORIGINS`; `AllowCredentials: true` for cookie-based web clients
 
 ### Dependencies
@@ -68,6 +68,8 @@ All configuration is via environment variables. Copy `env.example` to `.env` and
 |----------|---------|-------------|
 | `AUTHSERVICE_HOST` | `localhost` | |
 | `AUTHSERVICE_PORT` | `8081` | |
+| `AUTHSERVICE_WEB_PORT` | `8000` | authservice's static web server (HTTP) |
+| `AUTHSERVICE_WEB_PATH_PREFIX` | `/web` | Path prefix authservice's web server mounts its pages under — must match its `WEB_PATH_PREFIX` |
 | `ROUTERSERVICE_HOST` | `localhost` | |
 | `ROUTERSERVICE_PORT` | `8081` | |
 | `SEARCHSERVICE_HOST` | `localhost` | |
@@ -271,10 +273,10 @@ curl http://localhost:8080/v1/tiles/styles
 
 ### Web — `/web/*`
 
-HTTP reverse proxy to the authservice web server (login pages, email verification, password reset). The `/web` prefix is stripped before forwarding.
+HTTP reverse proxy to the authservice web server (login pages, email verification, password reset). The gateway owns the public `/web` namespace and maps it onto the path authservice's web server actually mounts under — its `WEB_PATH_PREFIX`, configured here as `AUTHSERVICE_WEB_PATH_PREFIX`. With the default `/web` on both sides the forwarded path is unchanged (`/web/reset-password` → `/web/reset-password`); if authservice is configured with a different prefix, set `AUTHSERVICE_WEB_PATH_PREFIX` to match so the pages keep working.
 
 ```bash
-curl http://localhost:8080/web/verify-email?token=...
+curl http://localhost:8080/web/reset-password?u=...&t=...
 ```
 
 ---

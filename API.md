@@ -764,7 +764,7 @@ List pending registration invites with pagination.
 #### `GET /web/{path}`
 #### `GET /web/`
 
-Reverse proxy to `authservice`'s embedded web server (port 8000). Serves HTML pages for email verification and password reset flows. The `/web` prefix is stripped before forwarding.
+Reverse proxy to `authservice`'s embedded web server (HTTP port configured via `AUTHSERVICE_WEB_PORT`, default 8000). Serves HTML pages for email verification and password reset flows. The gateway maps its `/web` namespace onto the path authservice mounts under (`AUTHSERVICE_WEB_PATH_PREFIX`, default `/web` — must match authservice's `WEB_PATH_PREFIX`).
 
 - **Security:** Public (no auth middleware)
 - **Available pages:** `/web/verify-user`, `/web/reset-password`, `/web/register`, `/web/registration-complete`, `/web/`, `/web/index.html`

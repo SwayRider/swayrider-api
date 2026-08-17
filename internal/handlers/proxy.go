@@ -1,9 +1,29 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// newProxyTransport returns the http.Transport shared by the HTTP reverse
+// proxies (tiles, web). The httputil default transport has no dial or
+// response-header timeouts, so a stuck downstream service can pin a request
+// goroutine indefinitely. These bounds turn that into a fast 502.
+func newProxyTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+	}
+}
 
 // stripCookies removes browser cookies from an outbound proxy request.
 //

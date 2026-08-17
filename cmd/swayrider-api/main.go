@@ -143,7 +143,7 @@ func main() {
 	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
 	searchHandler := handlers.NewSearchHandler(producer, hub, searchClt, tokenMgr.Token, breakers, lg)
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
-	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, 8000)
+	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, cfg.AuthServiceWebPort, cfg.AuthServiceWebPathPrefix)
 
 	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
 	srv.Run(ctx)

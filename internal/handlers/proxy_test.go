@@ -124,7 +124,8 @@ func TestWebProxy_ForwardsOnlyAccessTokenCookie(t *testing.T) {
 	defer backend.Close()
 
 	host, port := proxyTarget(t, backend.URL)
-	proxy := NewWebProxy(host, port)
+	// Default authservice prefix (/web): the outbound path is unchanged.
+	proxy := NewWebProxy(host, port, "/web")
 
 	req := httptest.NewRequest(http.MethodGet, "http://gateway/web/reset-password?t=abc", nil)
 	req.Header.Set("Cookie", accessName+"=userjwt; foo=bar; "+refreshName+"=refresh")
@@ -143,6 +144,80 @@ func TestWebProxy_ForwardsOnlyAccessTokenCookie(t *testing.T) {
 	}
 	if got, want := backendReq.URL.Path, "/web/reset-password"; got != want {
 		t.Errorf("path = %q, want %q", got, want)
+	}
+}
+
+func TestWebProxy_MapsGatewayPrefixToAuthServicePrefix(t *testing.T) {
+	var backendReq *http.Request
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendReq = r
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	host, port := proxyTarget(t, backend.URL)
+
+	tests := []struct {
+		name     string
+		prefix   string
+		inPath   string
+		wantPath string
+	}{
+		{"non-default authservice prefix", "/app", "/web/reset-password", "/app/reset-password"},
+		{"root authservice prefix", "/", "/web/verify-user", "/verify-user"},
+		{"empty authservice prefix", "", "/web/register", "/register"},
+		{"index page", "/app", "/web/", "/app/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backendReq = nil
+			proxy := NewWebProxy(host, port, tt.prefix)
+
+			req := httptest.NewRequest(http.MethodGet, "http://gateway"+tt.inPath, nil)
+			rec := httptest.NewRecorder()
+			proxy.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if backendReq == nil {
+				t.Fatal("backend never received the request")
+			}
+			if got, want := backendReq.URL.Path, tt.wantPath; got != want {
+				t.Errorf("path = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestMapWebPath(t *testing.T) {
+	tests := []struct {
+		path, prefix, want string
+	}{
+		{"/web/reset-password", "/web", "/web/reset-password"},
+		{"/web/reset-password", "/app", "/app/reset-password"},
+		{"/web/reset-password", "/", "/reset-password"},
+		{"/web/", "/web", "/web/"},
+		{"/web/verify-user", "", "/verify-user"},
+	}
+	for _, tt := range tests {
+		if got := mapWebPath(tt.path, tt.prefix); got != tt.want {
+			t.Errorf("mapWebPath(%q, %q) = %q, want %q", tt.path, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestNewProxyTransport_HasTimeouts(t *testing.T) {
+	tr := newProxyTransport()
+	if tr.ResponseHeaderTimeout <= 0 {
+		t.Errorf("ResponseHeaderTimeout = %v, want > 0", tr.ResponseHeaderTimeout)
+	}
+	if tr.DialContext == nil {
+		t.Error("DialContext is nil, want a bounded dialer")
+	}
+	if tr.TLSHandshakeTimeout <= 0 {
+		t.Errorf("TLSHandshakeTimeout = %v, want > 0", tr.TLSHandshakeTimeout)
 	}
 }
 

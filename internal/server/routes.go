@@ -60,6 +60,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/auth/admin/revoke-invite", middleware.RequireAdmin(http.HandlerFunc(auth.RevokeInvite)))
 	mux.Handle("GET /api/v1/auth/admin/list-invites", middleware.RequireAdmin(http.HandlerFunc(auth.ListInvites)))
 
-	// Auth web pages — HTTP reverse proxy (strip /web prefix)
+	// Auth web pages — HTTP reverse proxy; the gateway's /web namespace is
+	// mapped onto authservice's WEB_PATH_PREFIX inside the proxy handler.
 	mux.Handle("/web/", s.web)
 }
