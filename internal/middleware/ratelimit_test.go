@@ -146,7 +146,7 @@ func TestRateLimitAuthClassLimitsPerIP(t *testing.T) {
 	}
 
 	// An authenticated request to an auth-class endpoint is still keyed per IP.
-	rec = doRequest(h, requestWithUser("/api/v1/auth/login", "1.2.3.4", "user-1"))
+	doRequest(h, requestWithUser("/api/v1/auth/login", "1.2.3.4", "user-1"))
 	if fl.numCalls() != 2 {
 		t.Fatalf("expected 2 limiter calls, got %d", fl.numCalls())
 	}
