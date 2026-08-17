@@ -70,6 +70,7 @@ func (s *Server) Run(ctx context.Context) {
 	rateCfg := middleware.RateLimitConfig{
 		IPAuth:        s.cfg.RateLimitIPAuth,
 		IPPublic:      s.cfg.RateLimitIPPublic,
+		IPAPI:         s.cfg.RateLimitIPAPI,
 		UserAPI:       s.cfg.RateLimitUserAPI,
 		UserExpensive: s.cfg.RateLimitUserExpensive,
 	}
