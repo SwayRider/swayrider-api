@@ -13,15 +13,16 @@ The public-facing HTTP API is served by `swayrider-api` on port **8080**. It is 
 Every request passes through this middleware pipeline (innermost first):
 
 ```
-mux  →  RateLimit  →  Logging  →  Auth  →  CORS
+mux  →  BodyLimit  →  RateLimit  →  Logging  →  Auth  →  CORS
 ```
 
 | Middleware | Responsibility |
 |---|---|
-| **CORS** | Configurable allowed origins, methods (`GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`), headers (`Authorization`, `Content-Type`), credentials allowed |
+| **CORS** | Configurable allowed origins, methods (`GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`), headers (`Authorization`, `Content-Type`), credentials allowed. `CORS_ALLOWED_ORIGINS` entries are whitespace-trimmed, and a bare `*` or empty entry is rejected at startup (wildcard + credentials is an invalid or unsafe combination) |
+| **BodyLimit** | Bounds every request body to `MAX_BODY_BYTES` (default 1 MiB); larger bodies are rejected with `413 Payload Too Large` |
 | **Auth** | Extracts JWT from `Authorization: Bearer` header or `access_token` cookie and stores claims in context. Does **not** reject unauthenticated requests — individual handlers or downstream middleware decide. Also extracts `refresh_token` cookie, client IP, and secure flag. Client IP comes from `X-Forwarded-For` and the secure flag from `X-Forwarded-Proto`, but **only** when the request's immediate peer is a proxy in `TRUSTED_PROXIES`; otherwise the peer address (`RemoteAddr`) is used and the request is treated as insecure — forged headers can never spoof rate-limit keys or cookie security. |
 | **Logging** | Logs every request: method, path, status code, duration (ms), IP, user ID |
-| **RateLimit** | Redis-based sliding window rate limiting (60s window) |
+| **RateLimit** | Redis-based sliding window rate limiting (60s window). If Redis is unreachable the limiter **degrades** instead of failing open: it serves requests from an in-process sliding window with the same limits (`RATE_LIMIT_DEGRADE_MODE=memory`, default) or rejects every limited request with 429 (`deny`), probing Redis periodically for recovery. A limiter error in this middleware always fails closed (429). |
 
 ### Authentication
 
@@ -763,7 +764,7 @@ List pending registration invites with pagination.
 #### `GET /web/{path}`
 #### `GET /web/`
 
-Reverse proxy to `authservice`'s embedded web server (port 8000). Serves HTML pages for email verification and password reset flows. The `/web` prefix is stripped before forwarding.
+Reverse proxy to `authservice`'s embedded web server (HTTP port configured via `AUTHSERVICE_WEB_PORT`, default 8000). Serves HTML pages for email verification and password reset flows. The gateway maps its `/web` namespace onto the path authservice mounts under (`AUTHSERVICE_WEB_PATH_PREFIX`, default `/web` — must match authservice's `WEB_PATH_PREFIX`).
 
 - **Security:** Public (no auth middleware)
 - **Available pages:** `/web/verify-user`, `/web/reset-password`, `/web/register`, `/web/registration-complete`, `/web/`, `/web/index.html`
@@ -779,6 +780,8 @@ The route (`/api/v1/route`) and search (`/api/v1/search`, `/api/v1/search/revers
 1. Client sends a `POST` request with the operation payload as JSON body.
 2. Server validates auth, enqueues the job, and responds with `Content-Type: text/event-stream`.
 3. Server sends events as the job progresses.
+
+Results are scoped to the submitting user: the gateway verifies the stored result's owner (the authenticated user who enqueued the job) before emitting it, so a result cannot be read via a leaked `job_id`. Jobs also carry the submitting user's identity downstream as gRPC metadata (`x-user-id`, `x-account-level`, …) — see the README's "Forwarded user identity (trust chain)" section; downstream services must not treat that metadata as authentication.
 
 ### Event Types
 

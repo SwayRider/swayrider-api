@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -9,6 +12,8 @@ import (
 	"github.com/swayrider/swlib/http/cookies"
 	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // AuthClient is satisfied by *authclient.Client.
@@ -65,6 +70,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return false
 	}
@@ -111,11 +121,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		authclient.ClientInfo{IP: ip},
 	)
 	if err != nil {
-		lg.Warnf("login failed email=%s ip=%s err=%v", req.Email, ip, err)
+		lg.Warnf("login failed email_hash=%s ip=%s err=%v", emailHash(req.Email), ip, err)
 		writeJSON(w, grpcStatus(err), errBody(err))
 		return
 	}
-	lg.Infof("login ok email=%s ip=%s", req.Email, ip)
+	lg.Infof("login ok email_hash=%s ip=%s", emailHash(req.Email), ip)
 	setAuthCookies(w, r, accessToken, refreshToken)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"access_token":  accessToken,
@@ -134,7 +144,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	userID, message, err := h.client.Register(req.Email, req.Password, req.VerificationURL)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -210,7 +220,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.client.RequestPasswordReset(req.Email, req.ResetURL); err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -227,7 +237,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := h.client.ResetPassword(req.UserID, req.Token, req.NewPassword)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": message})
@@ -242,7 +252,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.client.VerifyEmail(req.Email, req.VerificationURL); err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -263,7 +273,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := h.client.ChangePassword(token, req.OldPassword, req.NewPassword)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": message})
@@ -278,7 +288,7 @@ func (h *AuthHandler) CheckPasswordStrength(w http.ResponseWriter, r *http.Reque
 	}
 	isStrong, message, err := h.client.CheckPasswordStrength(req.Password)
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -297,7 +307,7 @@ func (h *AuthHandler) WhoAmI(w http.ResponseWriter, r *http.Request) {
 		return whoAmIUser{userID, email, isVerified, isAdmin, accountType}
 	})
 	if err != nil {
-		writeJSON(w, grpcStatus(err), errBody(err))
+		writeError(w, h.l, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -335,6 +345,17 @@ func (h *AuthHandler) PublicKeys(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// emailHash returns a stable, non-reversible fingerprint of an email address
+// for logs. Raw addresses are never written to logs — they are PII, and a
+// failed-login log would otherwise double as an account-existence enumeration
+// trail for anyone with log access. The deterministic hash keeps repeated
+// attempts against the same account correlatable for forensics without
+// revealing the address.
+func emailHash(email string) string {
+	sum := sha256.Sum256([]byte(email))
+	return fmt.Sprintf("%x", sum[:8])
+}
+
 // --- internal types ---
 
 type whoAmIUser struct {
@@ -351,32 +372,74 @@ func (u whoAmIUser) IsVerified() bool    { return u.isVerified }
 func (u whoAmIUser) IsAdmin() bool       { return u.isAdmin }
 func (u whoAmIUser) AccountType() string { return u.accountType }
 
-// grpcStatus maps gRPC error messages to HTTP status codes.
+// grpcStatus maps gRPC status codes to HTTP status codes.
 func grpcStatus(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "NotFound"):
+	switch status.Code(err) {
+	case codes.NotFound:
 		return http.StatusNotFound
-	case strings.Contains(msg, "AlreadyExists"):
+	case codes.AlreadyExists:
 		return http.StatusConflict
-	case strings.Contains(msg, "PermissionDenied"):
+	case codes.PermissionDenied:
 		return http.StatusForbidden
-	case strings.Contains(msg, "Unauthenticated"):
+	case codes.Unauthenticated:
 		return http.StatusUnauthorized
-	case strings.Contains(msg, "InvalidArgument"):
+	case codes.InvalidArgument:
 		return http.StatusBadRequest
-	case strings.Contains(msg, "ResourceExhausted"):
+	case codes.ResourceExhausted:
 		return http.StatusTooManyRequests
-	case strings.Contains(msg, "FailedPrecondition"):
+	case codes.FailedPrecondition:
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}
 }
 
-func errBody(err error) map[string]string {
-	return map[string]string{"error": err.Error()}
+// errBody returns a sanitized error body: a generic per-code message plus a
+// stable machine-readable code. The downstream error text is never echoed to
+// the client — it can contain SQL errors, service internals, or
+// account-enumeration details. A weak-password rejection additionally carries
+// a "reason" so clients can offer a precise hint without matching on message
+// text.
+func errBody(err error) map[string]any {
+	body := map[string]any{
+		"error": genericMessage(err),
+		"code":  status.Code(err).String(),
+	}
+	if s, ok := status.FromError(err); ok && strings.HasPrefix(s.Message(), "password is too weak") {
+		body["reason"] = "weak_password"
+	}
+	return body
+}
+
+// genericMessage returns the safe client-facing message for a gRPC error.
+// Non-gRPC errors (connection failures, etc.) map to a generic internal error.
+func genericMessage(err error) string {
+	switch status.Code(err) {
+	case codes.NotFound:
+		return "not found"
+	case codes.AlreadyExists:
+		return "already exists"
+	case codes.PermissionDenied:
+		return "permission denied"
+	case codes.Unauthenticated:
+		return "unauthenticated"
+	case codes.InvalidArgument:
+		return "invalid argument"
+	case codes.ResourceExhausted:
+		return "resource exhausted"
+	case codes.FailedPrecondition:
+		return "failed precondition"
+	default:
+		return "internal error"
+	}
+}
+
+// writeError logs the full downstream error (which is never sent to the
+// client) and writes the sanitized error response.
+func writeError(w http.ResponseWriter, l *log.Logger, err error) {
+	l.Errorf("request failed: %v", err)
+	writeJSON(w, grpcStatus(err), errBody(err))
 }

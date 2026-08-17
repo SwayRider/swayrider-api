@@ -129,7 +129,7 @@ func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
-	h.hub.WaitForResult(r.Context(), w, jobID)
+	h.hub.WaitForResult(r.Context(), w, jobID, claims.Subject)
 }
 
 // NewRouteProcessFn returns the worker ProcessFn for routing jobs.

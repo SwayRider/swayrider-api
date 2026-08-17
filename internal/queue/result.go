@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // Job holds the decoded fields of a Redis stream message.
@@ -24,6 +25,16 @@ type JobResult struct {
 	Success bool            `json:"success"`
 	Data    json.RawMessage `json:"data,omitempty"`
 	Error   *JobError       `json:"error,omitempty"`
+}
+
+// StoredResult is the envelope written to Redis and published on the done
+// channel: the JobResult plus the ID of the user who submitted the job, so a
+// reader can verify ownership before delivering it. The Result is kept as raw
+// JSON so the client-facing payload is byte-identical to the JobResult the
+// worker produced.
+type StoredResult struct {
+	UserID string          `json:"user_id"`
+	Result json.RawMessage `json:"result"`
 }
 
 // JobError carries a gRPC-style status code and message.
@@ -178,25 +189,36 @@ func parseJob(values map[string]interface{}) Job {
 	}
 }
 
+// GrpcErrToJobError maps a downstream error to a JobError with a numeric
+// gRPC status code and a generic, sanitized message. The raw error text is
+// never exposed to the client; the full error is logged by the worker.
 func GrpcErrToJobError(err error) *JobError {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	code := 13 // INTERNAL
-	switch {
-	case strings.Contains(msg, "NotFound"):
-		code = 5
-	case strings.Contains(msg, "InvalidArgument"):
-		code = 3
-	case strings.Contains(msg, "Unavailable"):
-		code = 14
-	case strings.Contains(msg, "DeadlineExceeded"):
-		code = 4
-	case strings.Contains(msg, "PermissionDenied"):
-		code = 7
-	case strings.Contains(msg, "Unauthenticated"):
-		code = 16
+	code := status.Code(err)
+	return &JobError{
+		Code:    int(code),
+		Message: jobErrorMessage(code),
 	}
-	return &JobError{Code: code, Message: msg}
+}
+
+// jobErrorMessage returns a generic message for a gRPC status code.
+func jobErrorMessage(code codes.Code) string {
+	switch code {
+	case codes.NotFound:
+		return "not found"
+	case codes.InvalidArgument:
+		return "invalid argument"
+	case codes.Unavailable:
+		return "service unavailable"
+	case codes.DeadlineExceeded:
+		return "deadline exceeded"
+	case codes.PermissionDenied:
+		return "permission denied"
+	case codes.Unauthenticated:
+		return "unauthenticated"
+	default:
+		return "internal error"
+	}
 }

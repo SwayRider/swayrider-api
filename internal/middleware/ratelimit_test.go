@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -227,6 +228,21 @@ func TestRateLimitAuthenticatedPerUserClassLimitsPerUser(t *testing.T) {
 func TestRateLimitDeniedReturns429(t *testing.T) {
 	fl, h := newRateLimitHarness()
 	fl.allow = false
+
+	rec := doRequest(h, requestWithIP("/api/v1/auth/refresh", "1.2.3.4"))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "60" {
+		t.Errorf("Retry-After = %q, want %q", rec.Header().Get("Retry-After"), "60")
+	}
+}
+
+// A limiter error (e.g. deny degrade mode with Redis down) must fail closed,
+// not silently allow the request through unthrottled.
+func TestRateLimitFailsClosedOnLimiterError(t *testing.T) {
+	fl, h := newRateLimitHarness()
+	fl.err = errors.New("rate limiter degraded: redis unavailable")
 
 	rec := doRequest(h, requestWithIP("/api/v1/auth/refresh", "1.2.3.4"))
 	if rec.Code != http.StatusTooManyRequests {

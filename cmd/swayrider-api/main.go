@@ -73,13 +73,18 @@ func main() {
 	}
 	searchClt := searchCltIface.(*searchclient.Client)
 
-	// Redis
+	// Redis — short timeouts so a dead Redis fails fast instead of blocking
+	// request goroutines for the default ~15s (dial 5s x 3 retries).
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort),
+		Addr:         fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort),
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  1 * time.Second,
+		WriteTimeout: 1 * time.Second,
+		MaxRetries:   1,
 	})
 
 	// JWT key cache
-	keyCache := jwtkeys.New(authClt, lg)
+	keyCache := jwtkeys.New(authClt, cfg.JWTKeysRefreshTimeout, lg)
 	keyCache.Start(ctx)
 
 	// Service token manager — fetches and refreshes the gateway's own token.
@@ -88,12 +93,18 @@ func main() {
 		cfg.ClientID,
 		cfg.ClientSecret,
 		[]string{"region:query", "routing:execute", "search:execute", "tiles:serve"},
+		cfg.ServiceTokenRefreshTimeout,
 		lg,
 	)
 	tokenMgr.Start(ctx)
 
 	// Rate limiter + circuit breakers
-	limiter := ratelimit.New(redisClient)
+	limiter := ratelimit.New(redisClient, ratelimit.Options{
+		DegradeMode:      cfg.RateLimitDegradeMode,
+		DegradeThreshold: cfg.RateLimitDegradeThreshold,
+		ProbeInterval:    time.Duration(cfg.RateLimitProbeSeconds) * time.Second,
+		Logger:           lg,
+	})
 	breakers := circuitbreaker.New([]string{"authservice", "routerservice", "searchservice", "regionservice"}, lg)
 
 	// Queue producer + consumer group bootstrap
@@ -128,11 +139,11 @@ func main() {
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authClt, keyCache, lg)
-	regionHandler := handlers.NewRegionHandler(regionClt, tokenMgr.Token)
+	regionHandler := handlers.NewRegionHandler(regionClt, tokenMgr.Token, lg)
 	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
 	searchHandler := handlers.NewSearchHandler(producer, hub, searchClt, tokenMgr.Token, breakers, lg)
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
-	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, 8000)
+	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, cfg.AuthServiceWebPort, cfg.AuthServiceWebPathPrefix)
 
 	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
 	srv.Run(ctx)

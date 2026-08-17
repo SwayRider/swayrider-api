@@ -177,6 +177,11 @@ func (h *SearchHandler) enqueueAndStream(
 
 	payload, err := buildPayload()
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -222,7 +227,7 @@ func (h *SearchHandler) enqueueAndStream(
 		f.Flush()
 	}
 
-	h.hub.WaitForResult(r.Context(), w, jobID)
+	h.hub.WaitForResult(r.Context(), w, jobID, claims.Subject)
 }
 
 // NewSearchProcessFn returns the worker ProcessFn for search/reverse-geocode jobs.

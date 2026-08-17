@@ -68,9 +68,13 @@ func RateLimit(limiter RateLimiter, cfg RateLimitConfig, l *log.Logger) func(htt
 				allowed = false
 			}
 
-			_ = err // fail open on Redis error (Allow already does this)
+			if err != nil {
+				// Fail closed on limiter errors (e.g. deny degrade mode): a
+				// broken rate limiter must not disable throttling.
+				lg.Warnf("rate limit check failed class=%s ip=%s path=%s: %v", class, ip, path, err)
+			}
 
-			if !allowed {
+			if err != nil || !allowed {
 				userID := "-"
 				if authed {
 					userID = claims.Subject

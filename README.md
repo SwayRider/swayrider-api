@@ -17,8 +17,8 @@ There is no gRPC port. `swayrider-api` calls downstream services over gRPC but d
 - **Circuit breakers** — one per downstream service; opens after 5 consecutive failures
 - **Auth proxy** — `POST /api/v1/auth/*` → gRPC → authservice; sets/clears `access_token` and `refresh_token` cookies for web clients; returns tokens in the response body for mobile clients
 - **Region proxy** — `POST /api/v1/region/*` → gRPC → regionservice (public endpoints, no auth required)
-- **Tiles proxy** — `/v1/tiles/*` → HTTP reverse proxy → tilesservice
-- **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server (strips `/web` prefix)
+- **Tiles proxy** — `/v1/tiles/*` → HTTP reverse proxy → tilesservice; user cookies are not forwarded — the gateway injects its own service token
+- **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server; the gateway's `/web` namespace is mapped onto authservice's own `WEB_PATH_PREFIX` (see `AUTHSERVICE_WEB_PATH_PREFIX` below); only the `access_token` cookie is forwarded (authservice's static pages read it to render logged-in state), all other cookies are dropped
 - **CORS** — configured via `CORS_ALLOWED_ORIGINS`; `AllowCredentials: true` for cookie-based web clients
 
 ### Dependencies
@@ -68,6 +68,8 @@ All configuration is via environment variables. Copy `env.example` to `.env` and
 |----------|---------|-------------|
 | `AUTHSERVICE_HOST` | `localhost` | |
 | `AUTHSERVICE_PORT` | `8081` | |
+| `AUTHSERVICE_WEB_PORT` | `8000` | authservice's static web server (HTTP) |
+| `AUTHSERVICE_WEB_PATH_PREFIX` | `/web` | Path prefix authservice's web server mounts its pages under — must match its `WEB_PATH_PREFIX` |
 | `ROUTERSERVICE_HOST` | `localhost` | |
 | `ROUTERSERVICE_PORT` | `8081` | |
 | `SEARCHSERVICE_HOST` | `localhost` | |
@@ -110,6 +112,15 @@ swctl auth create-service-client \
 
 Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and `SWAYRIDER_API_CLIENT_SECRET`.
 
+### Background refresh
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVICE_TOKEN_REFRESH_TIMEOUT` | `15` | Upper bound (seconds) on a single service-token refresh attempt. If the call doesn't return in time it is abandoned (before it only failed **silently** and could wedge the refresh loop forever) and retried on the next cycle |
+| `JWT_KEYS_REFRESH_TIMEOUT` | `15` | Upper bound (seconds) on a single public-key fetch from authservice |
+
+Both refresh loops (service token, JWT public keys) bound every fetch attempt with their own timeout, recover from panics and relaunch the background goroutine, and log an error if they haven't succeeded for longer than the token/refresh lifetime — a stall is always visible in the logs instead of silent.
+
 ### Rate limits
 
 | Variable | Default | Description |
@@ -119,6 +130,17 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 | `RATE_LIMIT_IP_API` | `60` | Requests/min per IP on unauthenticated requests to per-user endpoints (refresh, logout, reset-password, check-password-strength, and floods aimed at protected endpoints) |
 | `RATE_LIMIT_USER_API` | `300` | Requests/min per user on general authenticated endpoints |
 | `RATE_LIMIT_USER_EXPENSIVE` | `20` | Requests/min per user on route and search endpoints |
+| `RATE_LIMIT_DEGRADE_MODE` | `memory` | Behavior when Redis is unreachable: `memory` (in-process fallback with same limits, per instance) or `deny` (fail closed, 429 everything) |
+| `RATE_LIMIT_DEGRADE_THRESHOLD` | `3` | Consecutive Redis failures before the limiter degrades (fail-open below this) |
+| `RATE_LIMIT_REDIS_PROBE_SECONDS` | `15` | How often the limiter probes Redis for recovery while degraded |
+
+When Redis is down, the rate limiter **does not silently disable throttling** (it previously failed open on every error, which the security review flagged). It degrades: after `RATE_LIMIT_DEGRADE_THRESHOLD` consecutive failures it either limits against an in-process sliding window with the same limits (`memory`, default — state is per-instance, so effective limits multiply by replica count while degraded) or rejects every limited request with 429 (`deny`). Redis is probed on `RATE_LIMIT_REDIS_PROBE_SECONDS` and the limiter recovers automatically. State transitions (degrade/recover) are logged; a limiter error in the middleware fails closed (429) rather than letting the request through unthrottled.
+
+### Request body limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_BODY_BYTES` | `1048576` (1 MiB) | Maximum request body size. Larger bodies are rejected with `413 Payload Too Large` before they can be read into memory |
 
 ### CORS
 
@@ -126,7 +148,7 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 |----------|---------|-------------|
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins |
 
-`AllowCredentials` is always `true` (required for cookie-based auth). Wildcard origins are not supported.
+`AllowCredentials` is always `true` (required for cookie-based auth). Wildcard origins are not supported — a bare `*` (or empty) entry is rejected at startup with a fatal error rather than silently enabling credentialed requests from any origin.
 
 ### Trusted proxies
 
@@ -135,6 +157,23 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 | `TRUSTED_PROXIES` | — | Comma-separated CIDRs of reverse proxies (e.g. the Traefik container) whose `X-Forwarded-For` / `X-Forwarded-Proto` headers are honored |
 
 Requests whose immediate peer is inside `TRUSTED_PROXIES` have their client IP read from `X-Forwarded-For` (rightmost non-proxy entry — proxies append) and the cookie `Secure` flag derived from `X-Forwarded-Proto`. Requests from any other peer are treated as direct connections: the headers are ignored and the peer address (`RemoteAddr`) is used, so a client can never spoof the IP used for rate limiting or force insecure cookies. **Empty (default) = trust no one.** In the dev stack, Traefik's container IP is pinned to `10.10.0.2` and `TRUSTED_PROXIES=10.10.0.2/32` is set in `layer-30`; the direct dev port (`34000`) is intentionally *not* trusted — WireGuard dev connections arrive from the docker gateway and are rate-limited by that address.
+
+### Forwarded user identity (trust chain)
+
+The gateway authenticates end users and calls downstream services with its own scoped service token. On the asynchronous route/search paths it additionally forwards the submitting user's identity as gRPC metadata, so downstream services can attribute work to the original caller:
+
+| Metadata | Meaning | Forwarded by |
+|---|---|---|
+| `x-user-id` | Submitting user's ID | route, search workers |
+| `x-account-level` | Submitting user's account level | route, search workers |
+| `x-is-admin` | Whether the user is an admin | route, search workers (currently unread downstream — reserved) |
+| `x-user-verified` | Whether the user's email is verified | route, search workers (currently unread downstream — reserved) |
+
+The region endpoints forward **no** user identity.
+
+Downstream services resolve these via `security.ResolveUserID` / `security.ResolveAccountLevel` (swlib), which consult the metadata **only** when the caller holds a valid service token with the scopes the endpoint requires (`AuthInterceptor` enforces this before claims are placed in context).
+
+**Trust model:** the metadata is *not* authentication. Any holder of a service token with the relevant scopes — in practice only this gateway's service client, scoped to `region:query routing:execute search:execute tiles:serve` — can set `x-user-*` to arbitrary values, including another user's ID. Downstream services must treat the forwarded identity as a hint about the original caller, never as verified identity, and must never use it alone to authorize privileged operations.
 
 ## API Reference
 
@@ -234,10 +273,10 @@ curl http://localhost:8080/v1/tiles/styles
 
 ### Web — `/web/*`
 
-HTTP reverse proxy to the authservice web server (login pages, email verification, password reset). The `/web` prefix is stripped before forwarding.
+HTTP reverse proxy to the authservice web server (login pages, email verification, password reset). The gateway owns the public `/web` namespace and maps it onto the path authservice's web server actually mounts under — its `WEB_PATH_PREFIX`, configured here as `AUTHSERVICE_WEB_PATH_PREFIX`. With the default `/web` on both sides the forwarded path is unchanged (`/web/reset-password` → `/web/reset-password`); if authservice is configured with a different prefix, set `AUTHSERVICE_WEB_PATH_PREFIX` to match so the pages keep working.
 
 ```bash
-curl http://localhost:8080/web/verify-email?token=...
+curl http://localhost:8080/web/reset-password?u=...&t=...
 ```
 
 ---

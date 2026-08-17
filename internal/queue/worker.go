@@ -94,8 +94,12 @@ func (wp *WorkerPool) processMessage(ctx context.Context, workerID string, msg r
 		}
 	}
 
-	payload, _ := json.Marshal(result)
-	payloadStr := string(payload)
+	resultBytes, _ := json.Marshal(result)
+	stored, _ := json.Marshal(StoredResult{
+		UserID: job.UserID,
+		Result: resultBytes,
+	})
+	payloadStr := string(stored)
 	wp.cfg.Redis.Set(ctx, "sw:result:"+job.JobID, payloadStr, wp.cfg.ResultTTL)
 	wp.cfg.Redis.Publish(ctx, "sw:done:"+job.JobID, payloadStr)
 }
