@@ -84,7 +84,7 @@ func main() {
 	})
 
 	// JWT key cache
-	keyCache := jwtkeys.New(authClt, lg)
+	keyCache := jwtkeys.New(authClt, cfg.JWTKeysRefreshTimeout, lg)
 	keyCache.Start(ctx)
 
 	// Service token manager — fetches and refreshes the gateway's own token.
@@ -93,6 +93,7 @@ func main() {
 		cfg.ClientID,
 		cfg.ClientSecret,
 		[]string{"region:query", "routing:execute", "search:execute", "tiles:serve"},
+		cfg.ServiceTokenRefreshTimeout,
 		lg,
 	)
 	tokenMgr.Start(ctx)

@@ -1,6 +1,10 @@
 package config
 
-import "github.com/swayrider/swlib/env"
+import (
+	"time"
+
+	"github.com/swayrider/swlib/env"
+)
 
 type Config struct {
 	HTTPPort int
@@ -47,6 +51,15 @@ type Config struct {
 	TrustedProxies []string
 
 	CookieNamespace string
+
+	// ServiceTokenRefreshTimeout hard-bounds a single service-token refresh
+	// attempt so a stuck gRPC call can never wedge the background refresh
+	// loop (and with it every downstream call).
+	ServiceTokenRefreshTimeout time.Duration
+
+	// JWTKeysRefreshTimeout hard-bounds a single public-key fetch for the
+	// same reason.
+	JWTKeysRefreshTimeout time.Duration
 }
 
 func Load() *Config {
@@ -91,5 +104,8 @@ func Load() *Config {
 		TrustedProxies: env.GetAsStringArr("TRUSTED_PROXIES", ""),
 
 		CookieNamespace: env.Get("COOKIE_NAMESPACE", "com.hevanto-it.swayrider"),
+
+		ServiceTokenRefreshTimeout: time.Duration(env.GetAsInt("SERVICE_TOKEN_REFRESH_TIMEOUT", 15)) * time.Second,
+		JWTKeysRefreshTimeout:      time.Duration(env.GetAsInt("JWT_KEYS_REFRESH_TIMEOUT", 15)) * time.Second,
 	}
 }
