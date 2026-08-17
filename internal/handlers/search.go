@@ -177,6 +177,11 @@ func (h *SearchHandler) enqueueAndStream(
 
 	payload, err := buildPayload()
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
