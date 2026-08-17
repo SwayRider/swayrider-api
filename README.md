@@ -119,6 +119,11 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 | `RATE_LIMIT_IP_API` | `60` | Requests/min per IP on unauthenticated requests to per-user endpoints (refresh, logout, reset-password, check-password-strength, and floods aimed at protected endpoints) |
 | `RATE_LIMIT_USER_API` | `300` | Requests/min per user on general authenticated endpoints |
 | `RATE_LIMIT_USER_EXPENSIVE` | `20` | Requests/min per user on route and search endpoints |
+| `RATE_LIMIT_DEGRADE_MODE` | `memory` | Behavior when Redis is unreachable: `memory` (in-process fallback with same limits, per instance) or `deny` (fail closed, 429 everything) |
+| `RATE_LIMIT_DEGRADE_THRESHOLD` | `3` | Consecutive Redis failures before the limiter degrades (fail-open below this) |
+| `RATE_LIMIT_REDIS_PROBE_SECONDS` | `15` | How often the limiter probes Redis for recovery while degraded |
+
+When Redis is down, the rate limiter **does not silently disable throttling** (it previously failed open on every error, which the security review flagged). It degrades: after `RATE_LIMIT_DEGRADE_THRESHOLD` consecutive failures it either limits against an in-process sliding window with the same limits (`memory`, default — state is per-instance, so effective limits multiply by replica count while degraded) or rejects every limited request with 429 (`deny`). Redis is probed on `RATE_LIMIT_REDIS_PROBE_SECONDS` and the limiter recovers automatically. State transitions (degrade/recover) are logged; a limiter error in the middleware fails closed (429) rather than letting the request through unthrottled.
 
 ### CORS
 

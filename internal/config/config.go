@@ -34,6 +34,11 @@ type Config struct {
 	RateLimitUserAPI       int
 	RateLimitUserExpensive int
 
+	// Rate limit Redis-degradation behavior.
+	RateLimitDegradeMode      string // "memory" (default) or "deny"
+	RateLimitDegradeThreshold int    // consecutive Redis failures before degrading
+	RateLimitProbeSeconds     int    // how often to probe Redis while degraded
+
 	CORSAllowedOrigins []string
 
 	// TrustedProxies lists the CIDRs of reverse proxies (e.g. Traefik) whose
@@ -76,6 +81,10 @@ func Load() *Config {
 		RateLimitIPAPI:         env.GetAsInt("RATE_LIMIT_IP_API", 60),
 		RateLimitUserAPI:       env.GetAsInt("RATE_LIMIT_USER_API", 300),
 		RateLimitUserExpensive: env.GetAsInt("RATE_LIMIT_USER_EXPENSIVE", 20),
+
+		RateLimitDegradeMode:      env.Get("RATE_LIMIT_DEGRADE_MODE", "memory"),
+		RateLimitDegradeThreshold: env.GetAsInt("RATE_LIMIT_DEGRADE_THRESHOLD", 3),
+		RateLimitProbeSeconds:     env.GetAsInt("RATE_LIMIT_REDIS_PROBE_SECONDS", 15),
 
 		CORSAllowedOrigins: env.GetAsStringArr("CORS_ALLOWED_ORIGINS", "http://localhost:5173"),
 

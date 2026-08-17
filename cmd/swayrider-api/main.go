@@ -73,9 +73,14 @@ func main() {
 	}
 	searchClt := searchCltIface.(*searchclient.Client)
 
-	// Redis
+	// Redis — short timeouts so a dead Redis fails fast instead of blocking
+	// request goroutines for the default ~15s (dial 5s x 3 retries).
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort),
+		Addr:         fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort),
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  1 * time.Second,
+		WriteTimeout: 1 * time.Second,
+		MaxRetries:   1,
 	})
 
 	// JWT key cache
@@ -93,7 +98,12 @@ func main() {
 	tokenMgr.Start(ctx)
 
 	// Rate limiter + circuit breakers
-	limiter := ratelimit.New(redisClient)
+	limiter := ratelimit.New(redisClient, ratelimit.Options{
+		DegradeMode:      cfg.RateLimitDegradeMode,
+		DegradeThreshold: cfg.RateLimitDegradeThreshold,
+		ProbeInterval:    time.Duration(cfg.RateLimitProbeSeconds) * time.Second,
+		Logger:           lg,
+	})
 	breakers := circuitbreaker.New([]string{"authservice", "routerservice", "searchservice", "regionservice"}, lg)
 
 	// Queue producer + consumer group bootstrap
