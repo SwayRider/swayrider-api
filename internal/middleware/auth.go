@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"strings"
 
@@ -36,7 +37,14 @@ type KeyCache interface {
 // Auth extracts and validates the JWT from the request.
 // Claims (or nil) and the raw token are stored in context.
 // Handlers decide whether authentication is required.
-func Auth(keyCache KeyCache) func(http.Handler) http.Handler {
+//
+// trustedProxies lists the CIDRs of reverse proxies (e.g. the Traefik
+// container) whose X-Forwarded-For / X-Forwarded-Proto headers are honored.
+// Only requests whose immediate TCP peer is inside one of these CIDRs have
+// those headers trusted; any other request is treated as a direct connection
+// and uses RemoteAddr, so a client can never spoof its IP for rate limiting
+// or force cookies to be issued without the Secure flag.
+func Auth(keyCache KeyCache, trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -65,12 +73,17 @@ func Auth(keyCache KeyCache) func(http.Handler) http.Handler {
 				}
 			}
 
-			// Detect HTTPS from the downstream proxy header.
-			ctx = context.WithValue(ctx, security.SecureKey, r.Header.Get("X-Forwarded-Proto") == "https")
+			// Client IP — only trust X-Forwarded-For when the immediate peer is
+			// a trusted proxy; otherwise the peer address is used.
+			peer := peerIP(r)
+			ctx = context.WithValue(ctx, security.OrigIpKey, clientIP(r, peer, trustedProxies))
 
-			// Client IP — trust X-Forwarded-For from Traefik.
-			ip := clientIP(r)
-			ctx = context.WithValue(ctx, security.OrigIpKey, ip)
+			// Detect HTTPS from the proxy header, but only when the peer is a
+			// trusted proxy. The service itself terminates no TLS, so without a
+			// trusted proxy the request is considered insecure.
+			secure := r.TLS != nil || (isTrustedProxy(peer, trustedProxies) &&
+				strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
+			ctx = context.WithValue(ctx, security.SecureKey, secure)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -106,17 +119,53 @@ func RequireVerifiedUser(next http.Handler) http.Handler {
 	})
 }
 
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if comma := strings.Index(xff, ","); comma >= 0 {
-			return strings.TrimSpace(xff[:comma])
+// peerIP returns the host portion of r.RemoteAddr (the immediate TCP peer).
+func peerIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// isTrustedProxy reports whether ip falls inside one of the trusted proxy CIDRs.
+func isTrustedProxy(ip string, trusted []*net.IPNet) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for _, n := range trusted {
+		if n.Contains(parsed) {
+			return true
 		}
-		return strings.TrimSpace(xff)
 	}
-	// Strip port from RemoteAddr.
-	addr := r.RemoteAddr
-	if i := strings.LastIndex(addr, ":"); i > 0 {
-		return addr[:i]
+	return false
+}
+
+// clientIP returns the client IP used for rate limiting and logging.
+//
+// When the immediate peer is a trusted proxy, the client IP is read from
+// X-Forwarded-For: proxies append the peer they saw to the header, so the
+// rightmost entry that is not itself a trusted proxy is the client (this also
+// handles chains such as internet → apache → traefik → api, where apache and
+// traefik are both in the trusted set). When the peer is not a trusted proxy
+// (a direct connection that bypassed the proxy), X-Forwarded-For is ignored
+// entirely and the peer address is used — a forged header can never spoof the
+// IP used for rate limiting.
+func clientIP(r *http.Request, peer string, trusted []*net.IPNet) string {
+	if !isTrustedProxy(peer, trusted) {
+		return peer
 	}
-	return addr
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return peer
+	}
+	entries := strings.Split(xff, ",")
+	for i := len(entries) - 1; i >= 0; i-- {
+		ip := strings.TrimSpace(entries[i])
+		if ip == "" || isTrustedProxy(ip, trusted) {
+			continue
+		}
+		return ip
+	}
+	return peer
 }
