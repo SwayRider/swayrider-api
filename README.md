@@ -156,6 +156,23 @@ When Redis is down, the rate limiter **does not silently disable throttling** (i
 
 Requests whose immediate peer is inside `TRUSTED_PROXIES` have their client IP read from `X-Forwarded-For` (rightmost non-proxy entry — proxies append) and the cookie `Secure` flag derived from `X-Forwarded-Proto`. Requests from any other peer are treated as direct connections: the headers are ignored and the peer address (`RemoteAddr`) is used, so a client can never spoof the IP used for rate limiting or force insecure cookies. **Empty (default) = trust no one.** In the dev stack, Traefik's container IP is pinned to `10.10.0.2` and `TRUSTED_PROXIES=10.10.0.2/32` is set in `layer-30`; the direct dev port (`34000`) is intentionally *not* trusted — WireGuard dev connections arrive from the docker gateway and are rate-limited by that address.
 
+### Forwarded user identity (trust chain)
+
+The gateway authenticates end users and calls downstream services with its own scoped service token. On the asynchronous route/search paths it additionally forwards the submitting user's identity as gRPC metadata, so downstream services can attribute work to the original caller:
+
+| Metadata | Meaning | Forwarded by |
+|---|---|---|
+| `x-user-id` | Submitting user's ID | route, search workers |
+| `x-account-level` | Submitting user's account level | route, search workers |
+| `x-is-admin` | Whether the user is an admin | route, search workers (currently unread downstream — reserved) |
+| `x-user-verified` | Whether the user's email is verified | route, search workers (currently unread downstream — reserved) |
+
+The region endpoints forward **no** user identity.
+
+Downstream services resolve these via `security.ResolveUserID` / `security.ResolveAccountLevel` (swlib), which consult the metadata **only** when the caller holds a valid service token with the scopes the endpoint requires (`AuthInterceptor` enforces this before claims are placed in context).
+
+**Trust model:** the metadata is *not* authentication. Any holder of a service token with the relevant scopes — in practice only this gateway's service client, scoped to `region:query routing:execute search:execute tiles:serve` — can set `x-user-*` to arbitrary values, including another user's ID. Downstream services must treat the forwarded identity as a hint about the original caller, never as verified identity, and must never use it alone to authorize privileged operations.
+
 ## API Reference
 
 ### Health

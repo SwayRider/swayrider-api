@@ -781,7 +781,7 @@ The route (`/api/v1/route`) and search (`/api/v1/search`, `/api/v1/search/revers
 2. Server validates auth, enqueues the job, and responds with `Content-Type: text/event-stream`.
 3. Server sends events as the job progresses.
 
-Results are scoped to the submitting user: the gateway verifies the stored result's owner (the authenticated user who enqueued the job) before emitting it, so a result cannot be read via a leaked `job_id`.
+Results are scoped to the submitting user: the gateway verifies the stored result's owner (the authenticated user who enqueued the job) before emitting it, so a result cannot be read via a leaked `job_id`. Jobs also carry the submitting user's identity downstream as gRPC metadata (`x-user-id`, `x-account-level`, …) — see the README's "Forwarded user identity (trust chain)" section; downstream services must not treat that metadata as authentication.
 
 ### Event Types
 
