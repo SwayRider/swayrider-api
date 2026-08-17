@@ -30,6 +30,7 @@ type Config struct {
 
 	RateLimitIPAuth        int
 	RateLimitIPPublic      int
+	RateLimitIPAPI         int
 	RateLimitUserAPI       int
 	RateLimitUserExpensive int
 
@@ -67,6 +68,7 @@ func Load() *Config {
 
 		RateLimitIPAuth:        env.GetAsInt("RATE_LIMIT_IP_AUTH", 10),
 		RateLimitIPPublic:      env.GetAsInt("RATE_LIMIT_IP_PUBLIC", 600),
+		RateLimitIPAPI:         env.GetAsInt("RATE_LIMIT_IP_API", 60),
 		RateLimitUserAPI:       env.GetAsInt("RATE_LIMIT_USER_API", 300),
 		RateLimitUserExpensive: env.GetAsInt("RATE_LIMIT_USER_EXPENSIVE", 20),
 

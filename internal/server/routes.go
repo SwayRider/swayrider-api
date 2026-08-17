@@ -35,6 +35,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Search (async SSE) — requires verified user
 	mux.Handle("POST /api/v1/search", middleware.RequireVerifiedUser(http.HandlerFunc(s.search.Search)))
 	mux.Handle("POST /api/v1/search/reverse", middleware.RequireVerifiedUser(http.HandlerFunc(s.search.ReverseGeocode)))
+	mux.Handle("POST /api/v1/search/autocomplete", middleware.RequireVerifiedUser(http.HandlerFunc(s.search.Autocomplete)))
 
 	// Region — requires verified user
 	region := s.region

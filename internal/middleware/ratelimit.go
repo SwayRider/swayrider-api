@@ -17,13 +17,20 @@ type RateLimiter interface {
 }
 
 type RateLimitConfig struct {
-	IPAuth        int
-	IPPublic      int
-	UserAPI       int
-	UserExpensive int
+	IPAuth        int // per-IP limit for the auth class (login, register, password flows)
+	IPPublic      int // per-IP limit for the public class (health, tiles, public-keys)
+	IPAPI         int // per-IP limit for unauthenticated requests to per-user (api/expensive) endpoints
+	UserAPI       int // per-user limit for the api class
+	UserExpensive int // per-user limit for the expensive class (route, search)
 }
 
 // RateLimit applies sliding-window rate limits based on the request path and auth state.
+//
+// Every request is limited. Classes that are inherently per-IP (auth, public) always
+// limit by IP. Classes that are per-user (api, expensive) limit by user when the
+// request is authenticated and by IP when it is not — so unauthenticated requests
+// (verify-email, refresh, reset-password, or floods aimed at protected endpoints)
+// can never bypass the limiter by simply omitting a token.
 func RateLimit(limiter RateLimiter, cfg RateLimitConfig, l *log.Logger) func(http.Handler) http.Handler {
 	lg := l.Derive(log.WithComponent("ratelimit"))
 	return func(next http.Handler) http.Handler {
@@ -51,8 +58,14 @@ func RateLimit(limiter RateLimiter, cfg RateLimitConfig, l *log.Logger) func(htt
 					limit = cfg.UserExpensive
 				}
 				allowed, err = limiter.Allow(ctx, fmt.Sprintf("rl:%s:user:%s", class, userID), limit, time.Minute)
+			case perUser:
+				// Unauthenticated request to a per-user endpoint: still limit per IP so
+				// the limiter can't be bypassed by omitting a token.
+				allowed, err = limiter.Allow(ctx, fmt.Sprintf("rl:%s:ip:%s", class, ip), cfg.IPAPI, time.Minute)
 			default:
-				allowed = true
+				// Unknown class — fail closed rather than allow unthrottled.
+				lg.Errorf("rate limit: unknown class %q, denying request", class)
+				allowed = false
 			}
 
 			_ = err // fail open on Redis error (Allow already does this)
@@ -79,7 +92,8 @@ func endpointClass(path string) (class string, perUser bool) {
 	case path == "/api/v1/auth/login",
 		path == "/api/v1/auth/register",
 		path == "/api/v1/auth/request-password-reset",
-		path == "/api/v1/auth/forgot-password":
+		path == "/api/v1/auth/forgot-password",
+		path == "/api/v1/auth/verify-email":
 		return "auth", false
 	case path == "/health",
 		strings.HasPrefix(path, "/v1/tiles/"),

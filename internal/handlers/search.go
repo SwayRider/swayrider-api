@@ -32,6 +32,14 @@ type ReverseGeocodeRequest struct {
 	Language string  `json:"language"`
 }
 
+// AutocompleteRequest is the JSON body accepted by POST /api/v1/search/autocomplete.
+type AutocompleteRequest struct {
+	Text       string      `json:"text"`
+	FocusPoint SearchCoord `json:"focusPoint"`
+	Size       int32       `json:"size"`
+	Language   string      `json:"language"`
+}
+
 // SearchCoord is a lat/lon pair used in search requests.
 type SearchCoord struct {
 	Lat float64 `json:"lat"`
@@ -44,17 +52,30 @@ type SearchBBox struct {
 	TopRight   SearchCoord `json:"topRight"`
 }
 
-// SearchHandler handles POST /api/v1/search and POST /api/v1/search/reverse via SSE.
+// SearchHandler handles search endpoints.
 type SearchHandler struct {
 	producer *queue.Producer
 	hub      *sse.Hub
+	client   *searchclient.Client
+	token    func() string
+	breaker  BreakerExecutor
 	l        *log.Logger
 }
 
-func NewSearchHandler(producer *queue.Producer, hub *sse.Hub, l *log.Logger) *SearchHandler {
+func NewSearchHandler(
+	producer *queue.Producer,
+	hub *sse.Hub,
+	client *searchclient.Client,
+	token func() string,
+	breaker BreakerExecutor,
+	l *log.Logger,
+) *SearchHandler {
 	return &SearchHandler{
 		producer: producer,
 		hub:      hub,
+		client:   client,
+		token:    token,
+		breaker:  breaker,
 		l:        l.Derive(log.WithComponent("search")),
 	}
 }
@@ -91,6 +112,51 @@ func (h *SearchHandler) ReverseGeocode(w http.ResponseWriter, r *http.Request) {
 		h.l.Derive(log.WithFunction("ReverseGeocode")).Infof(
 			"reverse geocode enqueued job_id=%s user=%s lat=%.4f lon=%.4f", jobID, userID, parsed.Lat, parsed.Lon)
 	})
+}
+
+func (h *SearchHandler) Autocomplete(w http.ResponseWriter, r *http.Request) {
+	lg := h.l.Derive(log.WithFunction("Autocomplete"))
+
+	claims, ok := security.GetClaims(r.Context())
+	if !ok || claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req AutocompleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	query := searchclient.AutocompleteQuery{
+		Text:       req.Text,
+		FocusPoint: searchclient.Coordinate{Latitude: req.FocusPoint.Lat, Longitude: req.FocusPoint.Lon},
+		Size:       req.Size,
+		Language:   req.Language,
+	}
+
+	var items []queue.SearchItem
+	err := h.breaker.Execute("searchservice", func() error {
+		results, err := h.client.AutocompleteWithContext(r.Context(), h.token(), query, newSearchResult)
+		if err != nil {
+			return err
+		}
+		items = toSearchItems(results)
+		return nil
+	})
+	if err != nil {
+		lg.Errorf("autocomplete failed user=%s err=%v", claims.Subject, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	lg.Debugf("autocomplete user=%s text=%q results=%d", claims.Subject, req.Text, len(items))
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(items); err != nil {
+		lg.Errorf("encode autocomplete response: %v", err)
+	}
 }
 
 func (h *SearchHandler) enqueueAndStream(

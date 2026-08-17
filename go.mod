@@ -8,8 +8,8 @@ require (
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/cors v1.11.1
 	github.com/sony/gobreaker v1.0.0
-	github.com/swayrider/grpcclients v0.1.4
-	github.com/swayrider/protos v0.1.2
+	github.com/swayrider/grpcclients v0.1.5
+	github.com/swayrider/protos v0.1.3
 	github.com/swayrider/swlib v0.1.5
 	google.golang.org/grpc v1.80.0
 	gopkg.in/yaml.v3 v3.0.1

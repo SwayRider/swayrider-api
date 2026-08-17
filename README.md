@@ -13,7 +13,7 @@ There is no gRPC port. `swayrider-api` calls downstream services over gRPC but d
 ### Responsibilities
 
 - **JWT validation** — verifies access tokens using public keys fetched from authservice (hourly refresh, supports key rotation)
-- **Rate limiting** — per-IP sliding window for public/auth endpoints; per-user sliding window for authenticated endpoints; backed by Redis
+- **Rate limiting** — per-IP sliding window for public/auth endpoints; per-user sliding window for authenticated endpoints (unauthenticated requests to user-scoped endpoints are limited per IP); backed by Redis
 - **Circuit breakers** — one per downstream service; opens after 5 consecutive failures
 - **Auth proxy** — `POST /api/v1/auth/*` → gRPC → authservice; sets/clears `access_token` and `refresh_token` cookies for web clients; returns tokens in the response body for mobile clients
 - **Region proxy** — `POST /api/v1/region/*` → gRPC → regionservice (public endpoints, no auth required)
@@ -112,8 +112,9 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RATE_LIMIT_IP_AUTH` | `10` | Requests/min per IP on login, register, password-reset |
+| `RATE_LIMIT_IP_AUTH` | `10` | Requests/min per IP on login, register, password-reset, verify-email |
 | `RATE_LIMIT_IP_PUBLIC` | `600` | Requests/min per IP on tiles, health, public-keys |
+| `RATE_LIMIT_IP_API` | `60` | Requests/min per IP on unauthenticated requests to per-user endpoints (refresh, logout, reset-password, check-password-strength, and floods aimed at protected endpoints) |
 | `RATE_LIMIT_USER_API` | `300` | Requests/min per user on general authenticated endpoints |
 | `RATE_LIMIT_USER_EXPENSIVE` | `20` | Requests/min per user on route and search endpoints |
 

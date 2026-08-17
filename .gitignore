@@ -1,3 +1,6 @@
 .env
 *.env
 
+
+# Code review reports
+CODE_REVIEW*.md

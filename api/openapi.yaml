@@ -952,6 +952,70 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/search/autocomplete:
+    post:
+      summary: Autocomplete (synchronous)
+      description: |
+        Partial-text geocoding suggestions biased toward a focus point.
+        Returns a JSON array of `SearchItem` directly (no SSE queue).
+        Client should debounce keystrokes before calling this endpoint.
+      operationId: autocomplete
+      tags: [search]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                focusPoint:
+                  $ref: '#/components/schemas/LatLon'
+                size:
+                  type: integer
+                  default: 10
+                language:
+                  type: string
+                  example: en
+              required: [text, focusPoint]
+      responses:
+        '200':
+          description: Array of matching locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchItem'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal error or downstream failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/region/search-point:
     post:
       summary: Find regions containing a coordinate

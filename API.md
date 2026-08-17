@@ -35,10 +35,10 @@ Rate limits are configured per-class via environment variables. Defaults apply i
 
 | Class | Key | Applies To |
 |---|---|---|
-| `auth` | Client IP | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/request-password-reset` |
+| `auth` | Client IP | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/request-password-reset`, `/api/v1/auth/verify-email` |
 | `public` | Client IP | `/health`, `/v1/tiles/*`, `/api/v1/auth/public-keys` |
-| `expensive` | User ID | `/api/v1/route`, `/api/v1/search*` |
-| `api` | User ID | All other authenticated endpoints |
+| `expensive` | User ID, or IP when unauthenticated | `/api/v1/route`, `/api/v1/search*` |
+| `api` | User ID, or IP when unauthenticated | All other endpoints (refresh, logout, reset-password, check-password-strength, region, admin, `/web/*`, …) |
 
 ---
 
@@ -189,6 +189,7 @@ Complete the password reset with a token received via email.
 Request a new verification email to be sent.
 
 - **Security:** Public
+- **Rate limit class:** `auth`
 - **Request:**
   ```json
   {
@@ -835,7 +836,7 @@ Errors are returned as JSON:
 | `POST` | `/api/v1/auth/logout` | Public | `api` |
 | `POST` | `/api/v1/auth/request-password-reset` | Public | `auth` |
 | `POST` | `/api/v1/auth/reset-password` | Public | `api` |
-| `POST` | `/api/v1/auth/verify-email` | Public | `api` |
+| `POST` | `/api/v1/auth/verify-email` | Public | `auth` |
 | `POST` | `/api/v1/auth/change-password` | JWT required | `api` |
 | `POST` | `/api/v1/auth/check-password-strength` | Public | `api` |
 | `GET` | `/api/v1/auth/public-keys` | Public | `public` |
