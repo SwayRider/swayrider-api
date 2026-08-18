@@ -14,7 +14,6 @@ import (
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
 	"github.com/swayrider/swayrider-api/internal/handlers"
-	"github.com/swayrider/swayrider-api/internal/jwtkeys"
 	"github.com/swayrider/swayrider-api/internal/queue"
 	"github.com/swayrider/swayrider-api/internal/ratelimit"
 	"github.com/swayrider/swayrider-api/internal/server"
@@ -22,6 +21,7 @@ import (
 	"github.com/swayrider/swayrider-api/internal/sse"
 	"github.com/swayrider/swlib/http/cookies"
 	"github.com/swayrider/swlib/jwt"
+	"github.com/swayrider/swlib/jwtkeys"
 	log "github.com/swayrider/swlib/logger"
 )
 
@@ -84,8 +84,9 @@ func main() {
 	})
 
 	// JWT key cache
-	keyCache := jwtkeys.New(authClt, cfg.JWTKeysRefreshTimeout, lg)
-	keyCache.Start(ctx)
+	keyCache := jwtkeys.New(lg)
+	keyCache.Configure(cfg.JWTKeysRefreshInterval, cfg.JWTKeysFetchTimeout)
+	keyCache.Start(ctx, authClt)
 
 	// Service token manager — fetches and refreshes the gateway's own token.
 	tokenMgr := servicetoken.New(

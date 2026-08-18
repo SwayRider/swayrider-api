@@ -118,8 +118,9 @@ Set the returned `clientId` and `clientSecret` as `SWAYRIDER_API_CLIENT_ID` and 
 |----------|---------|-------------|
 | `SERVICE_TOKEN_REFRESH_TIMEOUT` | `15` | Upper bound (seconds) on a single service-token refresh attempt. If the call doesn't return in time it is abandoned (before it only failed **silently** and could wedge the refresh loop forever) and retried on the next cycle |
 | `JWT_KEYS_REFRESH_TIMEOUT` | `15` | Upper bound (seconds) on a single public-key fetch from authservice |
+| `JWT_KEYS_REFRESH_INTERVAL` | `300` | How often (seconds) the cached JWT verification public keys are refetched from authservice; bounds how long it takes to pick up a rotated key or stop trusting a revoked one |
 
-Both refresh loops (service token, JWT public keys) bound every fetch attempt with their own timeout, recover from panics and relaunch the background goroutine, and log an error if they haven't succeeded for longer than the token/refresh lifetime — a stall is always visible in the logs instead of silent.
+Both refresh loops (service token, JWT public keys) bound every fetch attempt with their own timeout, recover from panics and relaunch the background goroutine, and log an error if they haven't succeeded for longer than the configured refresh interval — a stall is always visible in the logs instead of silent. The JWT public-key cache is the shared `swlib/jwtkeys.Cache`, also used by every backend gRPC service (mailservice, regionservice, routerservice, searchservice) that verifies JWTs.
 
 ### Rate limits
 
