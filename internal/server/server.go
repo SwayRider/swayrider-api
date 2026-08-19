@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/rs/cors"
-	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
 	"github.com/swayrider/swayrider-api/internal/handlers"
-	"github.com/swayrider/swayrider-api/internal/jwtkeys"
 	"github.com/swayrider/swayrider-api/internal/middleware"
 	"github.com/swayrider/swayrider-api/internal/ratelimit"
+	"github.com/swayrider/swlib/jwtkeys"
+	log "github.com/swayrider/swlib/logger"
 )
 
 type Server struct {

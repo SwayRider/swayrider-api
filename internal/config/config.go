@@ -68,9 +68,17 @@ type Config struct {
 	// loop (and with it every downstream call).
 	ServiceTokenRefreshTimeout time.Duration
 
-	// JWTKeysRefreshTimeout hard-bounds a single public-key fetch for the
-	// same reason.
-	JWTKeysRefreshTimeout time.Duration
+	// JWTKeysFetchTimeout hard-bounds a single public-key fetch for the same
+	// reason. Env var name (JWT_KEYS_REFRESH_TIMEOUT) is unchanged from
+	// before this field was renamed, to avoid a silent deploy-time behavior
+	// change for anyone with it already set.
+	JWTKeysFetchTimeout time.Duration
+
+	// JWTKeysRefreshInterval controls how often the cached JWT verification
+	// public keys are refetched from authservice. Shorter values reduce the
+	// window during which this gateway trusts a revoked key or fails to
+	// recognize a newly rotated one.
+	JWTKeysRefreshInterval time.Duration
 }
 
 func Load() *Config {
@@ -122,6 +130,7 @@ func Load() *Config {
 		MaxBodyBytes: int64(env.GetAsInt("MAX_BODY_BYTES", 1048576)), // 1 MiB
 
 		ServiceTokenRefreshTimeout: time.Duration(env.GetAsInt("SERVICE_TOKEN_REFRESH_TIMEOUT", 15)) * time.Second,
-		JWTKeysRefreshTimeout:      time.Duration(env.GetAsInt("JWT_KEYS_REFRESH_TIMEOUT", 15)) * time.Second,
+		JWTKeysFetchTimeout:        time.Duration(env.GetAsInt("JWT_KEYS_REFRESH_TIMEOUT", 15)) * time.Second,
+		JWTKeysRefreshInterval:     time.Duration(env.GetAsInt("JWT_KEYS_REFRESH_INTERVAL", 300)) * time.Second,
 	}
 }
