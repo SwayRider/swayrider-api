@@ -12,11 +12,11 @@ There is no gRPC port. `swayrider-api` calls downstream services over gRPC but d
 
 ### Responsibilities
 
-- **JWT validation** — verifies access tokens using public keys fetched from authservice (hourly refresh, supports key rotation)
+- **JWT validation** — verifies access tokens using public keys fetched from authservice (refreshed every `JWT_KEYS_REFRESH_INTERVAL_SECS` seconds, default 5 min; supports key rotation)
 - **Rate limiting** — per-IP sliding window for public/auth endpoints; per-user sliding window for authenticated endpoints (unauthenticated requests to user-scoped endpoints are limited per IP); backed by Redis
 - **Circuit breakers** — one per downstream service; opens after 5 consecutive failures
 - **Auth proxy** — `POST /api/v1/auth/*` → gRPC → authservice; sets/clears `access_token` and `refresh_token` cookies for web clients; returns tokens in the response body for mobile clients
-- **Region proxy** — `POST /api/v1/region/*` → gRPC → regionservice (public endpoints, no auth required)
+- **Region proxy** — `POST /api/v1/region/*` → gRPC → regionservice (requires an access token)
 - **Tiles proxy** — `/v1/tiles/*` → HTTP reverse proxy → tilesservice; user cookies are not forwarded — the gateway injects its own service token
 - **Web proxy** — `/web/*` → HTTP reverse proxy → authservice web server; the gateway's `/web` namespace is mapped onto authservice's own `WEB_PATH_PREFIX` (see `AUTHSERVICE_WEB_PATH_PREFIX` below); only the `access_token` cookie is forwarded (authservice's static pages read it to render logged-in state), all other cookies are dropped
 - **CORS** — configured via `CORS_ALLOWED_ORIGINS`; `AllowCredentials: true` for cookie-based web clients
@@ -137,6 +137,21 @@ Both refresh loops (service token, JWT public keys) bound every fetch attempt wi
 
 When Redis is down, the rate limiter **does not silently disable throttling** (it previously failed open on every error, which the security review flagged). It degrades: after `RATE_LIMIT_DEGRADE_THRESHOLD` consecutive failures it either limits against an in-process sliding window with the same limits (`memory`, default — state is per-instance, so effective limits multiply by replica count while degraded) or rejects every limited request with 429 (`deny`). Redis is probed on `RATE_LIMIT_REDIS_PROBE_SECONDS` and the limiter recovers automatically. State transitions (degrade/recover) are logged; a limiter error in the middleware fails closed (429) rather than letting the request through unthrottled.
 
+### Async job queue
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ROUTE_WORKER_COUNT` | `5` | Goroutines draining the routing stream |
+| `SEARCH_WORKER_COUNT` | `10` | Goroutines draining the search stream |
+| `QUEUE_MAX_DEPTH` | `500` | Max pending messages across routing/search streams combined |
+| `RESULT_TTL_SECONDS` | `300` | How long (seconds) completed job results are kept in Redis |
+
+### Cookie namespace
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COOKIE_NAMESPACE` | `com.hevanto-it.swayrider` | Prefix applied to all cookie names |
+
 ### Request body limits
 
 | Variable | Default | Description |
@@ -214,7 +229,10 @@ The gateway proxies these endpoints to authservice over gRPC. On login, register
 | `/api/v1/route` | POST | **Access token** | SSE streaming |
 | `/api/v1/search` | POST | **Access token** | SSE streaming |
 | `/api/v1/search/reverse` | POST | **Access token** | SSE streaming |
+| `/api/v1/search/autocomplete` | POST | **Access token** | SSE streaming |
 | `/v1/tiles/*` | GET | **Access token** | Proxy injects service token to tilesservice |
+
+Nine additional `/api/v1/auth/admin/*` endpoints (create-admin, change-account-type, whois, create-service-client, delete-service-client, list-service-clients, invite-user, revoke-invite, list-invites) require Admin access — see [Admin](#admin) below.
 
 #### Login
 
@@ -239,11 +257,27 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
   --cookie "refresh_token=..."
 ```
 
+#### Admin
+
+All proxy directly to authservice over gRPC and require an admin access token.
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/v1/auth/admin/create-admin` | POST | |
+| `/api/v1/auth/admin/change-account-type` | POST | |
+| `/api/v1/auth/admin/whois` | POST | |
+| `/api/v1/auth/admin/create-service-client` | POST | |
+| `/api/v1/auth/admin/delete-service-client` | POST | |
+| `/api/v1/auth/admin/list-service-clients` | GET | |
+| `/api/v1/auth/admin/invite-user` | POST | |
+| `/api/v1/auth/admin/revoke-invite` | POST | |
+| `/api/v1/auth/admin/list-invites` | GET | |
+
 ---
 
 ### Region — `/api/v1/region/*`
 
-All region endpoints are public (no authentication required). They proxy directly to regionservice over gRPC.
+All region endpoints require an access token. They proxy directly to regionservice over gRPC.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -252,6 +286,7 @@ All region endpoints are public (no authentication required). They proxy directl
 | `/api/v1/region/search-radius` | POST | Regions within a radius |
 | `/api/v1/region/find-crossing-locations` | POST | Border crossing points |
 | `/api/v1/region/find-region-path` | POST | Region sequence for a cross-border route |
+| `/api/v1/region/find-route-region-paths` | POST | Region sequence for a multi-waypoint route |
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/region/search-point \
@@ -313,8 +348,11 @@ Tagging follows the same branch-based convention as other SwayRider services:
 | Branch / state | Tags applied |
 |----------------|--------------|
 | Version-tagged commit (`v1.2.3`) | `v1.2.3`, `latest` |
-| `main` (untagged) | `v{last}-{date}-dev`, `dev-latest` |
-| Other branch | `v{last}-{branch}` |
+| `main` (untagged) | `v{last}-{date}-dev-b{N}`, `dev-latest` |
+| Other branch | `v{last}-{branch}-b{N}` |
+| Detached HEAD | `v{last}-{sha}-b{N}` |
+
+Non-release builds get an incrementing build number (`-b{N}`) so repeated builds of the same branch don't overwrite each other. The number comes from querying the registry for the highest existing `-b{N}` tag on the same base tag and adding 1; the build fails if the registry can't be reached. Release builds are immutable and never get a build number.
 
 ```bash
 # Also push dev-latest on a release tag
