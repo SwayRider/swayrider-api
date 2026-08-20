@@ -397,19 +397,36 @@ func grpcStatus(err error) int {
 	}
 }
 
+// breachedPasswordPrefix matches authservice's ErrBreachedPasswordPrefix
+// (authservice/internal/server/breached_checker.go). The prefix is the
+// contract between the two services; the tail may carry detail (e.g. the
+// breach count) and must not be matched.
+const breachedPasswordPrefix = "password has appeared in a known data breach"
+
+// passwordReusedPrefix matches authservice's ErrPasswordReusedPrefix
+// (authservice/internal/server/password_history.go).
+const passwordReusedPrefix = "password has been used before"
+
 // errBody returns a sanitized error body: a generic per-code message plus a
 // stable machine-readable code. The downstream error text is never echoed to
 // the client — it can contain SQL errors, service internals, or
-// account-enumeration details. A weak-password rejection additionally carries
-// a "reason" so clients can offer a precise hint without matching on message
+// account-enumeration details. Password rejections additionally carry a
+// "reason" so clients can offer a precise hint without matching on message
 // text.
 func errBody(err error) map[string]any {
 	body := map[string]any{
 		"error": genericMessage(err),
 		"code":  status.Code(err).String(),
 	}
-	if s, ok := status.FromError(err); ok && strings.HasPrefix(s.Message(), "password is too weak") {
-		body["reason"] = "weak_password"
+	if s, ok := status.FromError(err); ok {
+		switch {
+		case strings.HasPrefix(s.Message(), "password is too weak"):
+			body["reason"] = "weak_password"
+		case strings.HasPrefix(s.Message(), breachedPasswordPrefix):
+			body["reason"] = "breached_password"
+		case strings.HasPrefix(s.Message(), passwordReusedPrefix):
+			body["reason"] = "password_reused"
+		}
 	}
 	return body
 }

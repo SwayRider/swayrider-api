@@ -73,10 +73,41 @@ func TestErrBody_WeakPasswordReason(t *testing.T) {
 	}
 }
 
+func TestErrBody_BreachedPasswordReason(t *testing.T) {
+	err := status.Error(codes.InvalidArgument, "password has appeared in a known data breach (found 12 times)")
+	body := errBody(err)
+	if body["reason"] != "breached_password" {
+		t.Errorf("reason = %v, want %q", body["reason"], "breached_password")
+	}
+	if body["error"] != "invalid argument" {
+		t.Errorf("error = %v, want %q", body["error"], "invalid argument")
+	}
+}
+
+func TestErrBody_PasswordReusedReason(t *testing.T) {
+	err := status.Error(codes.InvalidArgument, "password has been used before: choose a password you have not used recently")
+	body := errBody(err)
+	if body["reason"] != "password_reused" {
+		t.Errorf("reason = %v, want %q", body["reason"], "password_reused")
+	}
+	if body["error"] != "invalid argument" {
+		t.Errorf("error = %v, want %q", body["error"], "invalid argument")
+	}
+}
+
 func TestErrBody_NoReasonForOtherErrors(t *testing.T) {
 	err := status.Error(codes.InvalidArgument, "email address is not valid")
 	if _, ok := errBody(err)["reason"]; ok {
 		t.Errorf("unexpected reason for non-weak-password error")
+	}
+}
+
+func TestErrBody_ReasonNeedsExactPrefix(t *testing.T) {
+	// The prefix is the contract — a message that mentions breach data
+	// without starting with the exact prefix must not be classified.
+	err := status.Error(codes.InvalidArgument, "validation failed: breach data unavailable")
+	if _, ok := errBody(err)["reason"]; ok {
+		t.Errorf("unexpected reason for message without the breach prefix")
 	}
 }
 
