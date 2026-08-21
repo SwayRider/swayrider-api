@@ -36,7 +36,7 @@ Rate limits are configured per-class via environment variables. Defaults apply i
 
 | Class | Key | Applies To |
 |---|---|---|
-| `auth` | Client IP | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/request-password-reset`, `/api/v1/auth/verify-email` |
+| `auth` | Client IP | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/request-password-reset`, `/api/v1/auth/verify-email`, `/api/v1/auth/mfa/verify` (TOTP brute-force surface) |
 | `public` | Client IP | `/health`, `/v1/tiles/*`, `/api/v1/auth/public-keys` |
 | `expensive` | User ID, or IP when unauthenticated | `/api/v1/route`, `/api/v1/search*` |
 | `api` | User ID, or IP when unauthenticated | All other endpoints (refresh, logout, reset-password, check-password-strength, region, admin, `/web/*`, …) |
@@ -69,6 +69,8 @@ These endpoints are registered directly on the mux without `RequireVerifiedUser`
 
 Authenticate with email and password. Returns access + refresh token pair. Sets both as HTTP-only cookies scoped to `/` (access) and `/api/v1/auth/refresh` (refresh).
 
+When the account has MFA enabled, no tokens or cookies are issued yet — the response carries `mfa_required: true` and a one-time `mfa_token` challenge that must be exchanged via `POST /api/v1/auth/mfa/verify`.
+
 - **Security:** Public
 - **Rate limit class:** `auth`
 - **Request:**
@@ -79,11 +81,18 @@ Authenticate with email and password. Returns access + refresh token pair. Sets 
     "remember_me": false
   }
   ```
-- **Response (200):**
+- **Response (200, no MFA):**
   ```json
   {
     "access_token": "eyJhbGciOiJSUzI1NiIs...",
     "refresh_token": "64-byte-hex-string"
+  }
+  ```
+- **Response (200, MFA required):** No cookies are set.
+  ```json
+  {
+    "mfa_required": true,
+    "mfa_token": "single-use-challenge-token"
   }
   ```
 - **Errors:** 401 (invalid credentials), 429 (rate limit)
@@ -285,6 +294,115 @@ Get the authenticated user's claims directly from the JWT (no downstream gRPC ca
   }
   ```
 - **Errors:** 401 (missing/invalid JWT)
+
+---
+
+### Auth — MFA
+
+TOTP two-factor authentication. Management endpoints require a valid JWT; `verify` is public (no access token exists mid-login) and completes the pending-login challenge returned by `POST /api/v1/auth/login` when the account has MFA enabled.
+
+#### `POST /api/v1/auth/mfa/setup`
+
+Start enrollment. Generates a fresh secret (stored encrypted, not yet enabled) and returns it for manual entry into an authenticator app, plus the otpauth URL and a server-rendered QR PNG of it (for enrollment from a second device). The secret is shown exactly once.
+
+- **Security:** Valid JWT required
+- **Response (200):**
+  ```json
+  {
+    "secret": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+    "otpauth_url": "otpauth://totp/SwayRider:user@example.com?secret=...",
+    "qr_png_base64": "iVBORw0KGgo..."
+  }
+  ```
+- **Errors:** 401 (missing/invalid JWT), 409 (already enabled, or MFA disabled globally)
+
+#### `POST /api/v1/auth/mfa/enable`
+
+Complete enrollment by proving control of the pending secret with one valid TOTP code. Enables MFA and issues the fresh backup-code set (plaintext, shown once).
+
+- **Security:** Valid JWT required
+- **Request:**
+  ```json
+  {
+    "code": "123456"
+  }
+  ```
+- **Response (200):**
+  ```json
+  {
+    "backup_codes": ["ABCD-EFGH", "JKLM-NOPQ", "RSTU-VWXY", "Z123-4567", "ABCD-EFGH"]
+  }
+  ```
+- **Errors:** 400 (invalid code), 401 (missing/invalid JWT), 409 (already enabled / not set up / disabled globally)
+
+#### `POST /api/v1/auth/mfa/disable`
+
+Disable MFA for the account. Deletes the enrollment row and all backup codes. The account password is required and verified.
+
+- **Security:** Valid JWT required
+- **Request:**
+  ```json
+  {
+    "password": "currentPassword"
+  }
+  ```
+- **Response:** 204 No Content
+- **Errors:** 401 (missing/invalid JWT or wrong password), 409 (MFA disabled globally)
+
+#### `GET /api/v1/auth/mfa/status`
+
+Report whether the authenticated user has MFA enabled.
+
+- **Security:** Valid JWT required
+- **Response (200):**
+  ```json
+  {
+    "enabled": true
+  }
+  ```
+- **Errors:** 401 (missing/invalid JWT), 409 (MFA disabled globally)
+
+#### `POST /api/v1/auth/mfa/verify`
+
+Complete the second factor: exchange the pending-login challenge token (from a login that returned `mfa_required`) plus a TOTP code or single-use backup code for the normal token pair. On success sets the same HTTP-only cookies as login. This endpoint is the TOTP brute-force surface and is rate limited per IP (`auth` class), on top of authservice's per-challenge attempt counter and per-user MFA throttle.
+
+- **Security:** Public (valid challenge token required)
+- **Rate limit class:** `auth`
+- **Request:**
+  ```json
+  {
+    "mfa_token": "single-use-challenge-token",
+    "code": "123456",
+    "remember_me": false
+  }
+  ```
+- **Response (200):**
+  ```json
+  {
+    "access_token": "eyJhbGciOiJSUzI1NiIs...",
+    "refresh_token": "64-byte-hex-string"
+  }
+  ```
+- **Errors:** 401 (invalid/expired/exhausted challenge, invalid code, locked MFA scope), 429 (rate limit)
+
+#### `POST /api/v1/auth/mfa/backup-codes`
+
+Regenerate the backup-code set (invalidating the previous one). The new plaintext codes are returned once. The account password is required.
+
+- **Security:** Valid JWT required
+- **Request:**
+  ```json
+  {
+    "password": "currentPassword"
+  }
+  ```
+- **Response (200):**
+  ```json
+  {
+    "backup_codes": ["NEW1-CODE", "NEW2-CODE", "..."]
+  }
+  ```
+- **Errors:** 401 (missing/invalid JWT or wrong password), 409 (not enabled / disabled globally)
 
 ---
 
@@ -845,6 +963,12 @@ Errors are returned as JSON:
 | `GET` | `/api/v1/auth/public-keys` | Public | `public` |
 | `GET` | `/api/v1/auth/whoami` | JWT required | `api` |
 | `GET` | `/api/v1/auth/me` | JWT required | `api` |
+| `POST` | `/api/v1/auth/mfa/setup` | JWT required | `api` |
+| `POST` | `/api/v1/auth/mfa/enable` | JWT required | `api` |
+| `POST` | `/api/v1/auth/mfa/disable` | JWT required | `api` |
+| `GET` | `/api/v1/auth/mfa/status` | JWT required | `api` |
+| `POST` | `/api/v1/auth/mfa/verify` | Public | `auth` |
+| `POST` | `/api/v1/auth/mfa/backup-codes` | JWT required | `api` |
 | `POST` | `/api/v1/route` | Verified user | `expensive` |
 | `POST` | `/api/v1/search` | Verified user | `expensive` |
 | `POST` | `/api/v1/search/reverse` | Verified user | `expensive` |
