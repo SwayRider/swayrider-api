@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/swayrider/swlib/http/cookies"
+	"github.com/swayrider/swlib/security"
 )
 
 // webGatewayPrefix is the public URL namespace the gateway serves the auth
@@ -34,7 +35,14 @@ func mapWebPath(path, authWebPrefix string) string {
 // path is unchanged; the two prefixes are decoupled via
 // AUTHSERVICE_WEB_PATH_PREFIX so a change to authservice's prefix no longer
 // silently breaks the proxy.
+//
+// All pages under /web are public — they serve emailed verification, reset,
+// and registration links that must be reachable without a JWT token.
+// Authservice's own web server enforces its own security (e.g. the reset-mfa
+// page's password re-verification), so the gateway only needs to forward.
 func NewWebProxy(host string, port int, authWebPrefix string) http.Handler {
+	registerWebPublicEndpoints()
+
 	target, _ := url.Parse(fmt.Sprintf("http://%s:%d", host, port))
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = newProxyTransport()
@@ -50,4 +58,22 @@ func NewWebProxy(host string, port int, authWebPrefix string) http.Handler {
 		stripCookies(r2, cookies.FullCookieName("access_token"))
 		proxy.ServeHTTP(w, r2)
 	})
+}
+
+// registerWebPublicEndpoints marks all web pages under /web as publicly
+// accessible so the gateway's auth middleware doesn't 401 anonymous visitors
+// before the request ever reaches the web proxy.
+func registerWebPublicEndpoints() {
+	pages := []string{
+		webGatewayPrefix + "/",
+		webGatewayPrefix + "/index.html",
+		webGatewayPrefix + "/verify-user",
+		webGatewayPrefix + "/reset-password",
+		webGatewayPrefix + "/reset-mfa",
+		webGatewayPrefix + "/register",
+		webGatewayPrefix + "/registration-complete",
+	}
+	for _, p := range pages {
+		security.PublicEndpoint(p)
+	}
 }
