@@ -24,6 +24,7 @@ type AuthClient interface {
 	Logout(refreshToken string) error
 	RequestPasswordReset(email, resetUrl string) error
 	ResetPassword(userId, token, newPassword string) (message string, err error)
+	RequestMfaReset(email, password, backupCode, mfaResetUrl string) error
 	VerifyEmail(email, verificationUrl string) error
 	ChangePassword(accessToken, oldPassword, newPassword string) (message string, err error)
 	CheckPasswordStrength(password string) (isStrong bool, message string, err error)
@@ -236,6 +237,23 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.client.RequestPasswordReset(req.Email, req.ResetURL); err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AuthHandler) RequestMfaReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		BackupCode  string `json:"backup_code"`
+		MfaResetURL string `json:"mfa_reset_url"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if err := h.client.RequestMfaReset(req.Email, req.Password, req.BackupCode, req.MfaResetURL); err != nil {
 		writeError(w, h.l, err)
 		return
 	}

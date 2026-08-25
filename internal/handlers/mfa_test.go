@@ -25,6 +25,7 @@ type stubAuthClient struct {
 	getMFAStatusFn func(accessToken string) (enabled bool, err error)
 	verifyMFAFn    func(mfaToken, code string, rememberMe bool, info ...authclient.ClientInfo) (accessToken, refreshToken string, err error)
 	backupCodesFn  func(accessToken, password string) (backupCodes []string, err error)
+	mfaResetFn     func(email, password, backupCode, mfaResetUrl string) error
 }
 
 func (s *stubAuthClient) Login(email, password string, rememberMe bool, info ...authclient.ClientInfo) (accessToken, refreshToken string, mfaRequired bool, mfaToken string, err error) {
@@ -115,6 +116,12 @@ func (s *stubAuthClient) GenerateBackupCodes(accessToken, password string) (back
 		return s.backupCodesFn(accessToken, password)
 	}
 	return
+}
+func (s *stubAuthClient) RequestMfaReset(email, password, backupCode, mfaResetUrl string) error {
+	if s.mfaResetFn != nil {
+		return s.mfaResetFn(email, password, backupCode, mfaResetUrl)
+	}
+	return nil
 }
 
 func newMFAHandler(client AuthClient) *AuthHandler {
@@ -257,6 +264,51 @@ func TestMfaVerify_Failure_Sanitized401NoCookies(t *testing.T) {
 	}
 	if hasSetCookie(rec) {
 		t.Errorf("no cookies may be set on a failed verify, got %v", rec.Result().Cookies())
+	}
+}
+
+func TestRequestMfaReset_DecodesAndForwardsBackupCode(t *testing.T) {
+	var gotEmail, gotPassword, gotBackupCode, gotURL string
+	stub := &stubAuthClient{
+		mfaResetFn: func(email, password, backupCode, mfaResetUrl string) error {
+			gotEmail, gotPassword, gotBackupCode, gotURL = email, password, backupCode, mfaResetUrl
+			return nil
+		},
+	}
+	h := newMFAHandler(stub)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/mfa/reset/request", strings.NewReader(
+		`{"email":"user@example.com","password":"secret","backup_code":"ABCD1234","mfa_reset_url":"https://app/reset-mfa"}`))
+	h.RequestMfaReset(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if gotEmail != "user@example.com" || gotPassword != "secret" ||
+		gotBackupCode != "ABCD1234" || gotURL != "https://app/reset-mfa" {
+		t.Errorf("client.RequestMfaReset called with (%q, %q, %q, %q)", gotEmail, gotPassword, gotBackupCode, gotURL)
+	}
+}
+
+func TestRequestMfaReset_Failure_Sanitized(t *testing.T) {
+	stub := &stubAuthClient{
+		mfaResetFn: func(email, password, backupCode, mfaResetUrl string) error {
+			return status.Error(codes.Unauthenticated, "invalid authentication code")
+		},
+	}
+	h := newMFAHandler(stub)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/mfa/reset/request", strings.NewReader(
+		`{"email":"user@example.com","password":"secret","backup_code":"WRONG"}`))
+	h.RequestMfaReset(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "invalid authentication code") {
+		t.Errorf("response echoes downstream error text: %s", rec.Body.String())
 	}
 }
 

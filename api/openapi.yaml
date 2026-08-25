@@ -548,8 +548,10 @@ paths:
       summary: Complete the second factor
       description: |
         Exchanges the pending-login challenge token (from a login that returned
-        `mfa_required`) plus a TOTP code or single-use backup code for the normal
-        token pair. On success sets the same HTTP-only cookies as login.
+        `mfa_required`) plus a TOTP code for the normal token pair. On success
+        sets the same HTTP-only cookies as login. Backup codes are not accepted
+        here -- a lost authenticator is recovered via
+        `POST /api/v1/auth/mfa/reset/request` instead.
       operationId: mfaVerify
       tags: [auth]
       security: []
@@ -565,7 +567,7 @@ paths:
                   description: Challenge token from the login response
                 code:
                   type: string
-                  description: TOTP code or single-use backup code
+                  description: TOTP code
                 remember_me:
                   type: boolean
                   default: false
@@ -633,6 +635,63 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: MFA not enabled, or disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/reset/request:
+    post:
+      summary: Request an email-verified MFA/TOTP reset
+      description: |
+        The only way to recover a lost authenticator -- there is no direct
+        backup-code login. Requires all three of: account password, a
+        single-use backup code, and access to the registered email. Verifies
+        email+password with the same protection as login, then consumes one
+        backup code, and only then emails a reset link. The link lands on a
+        web page (the app has no deep-linking yet) that lets the user set up
+        a new authenticator; the current secret stays valid until that
+        page's confirmation step succeeds.
+      operationId: requestMfaReset
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                backup_code:
+                  type: string
+                  description: One of the account's single-use backup codes. Consumed on success.
+                mfa_reset_url:
+                  type: string
+                  format: uri
+              required: [email, password, backup_code, mfa_reset_url]
+      responses:
+        '204':
+          description: Request accepted (email sent if the account exists, the password matches, the backup code is valid and unused, and MFA is enabled)
+        '401':
+          description: Invalid email or password, or invalid/already-used backup code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA not enabled on this account, or disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
           content:
             application/json:
               schema:

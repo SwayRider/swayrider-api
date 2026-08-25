@@ -98,6 +98,10 @@ func endpointClass(path string) (class string, perUser bool) {
 		path == "/api/v1/auth/request-password-reset",
 		path == "/api/v1/auth/forgot-password",
 		path == "/api/v1/auth/verify-email",
+		// Verifies email+password like login, so it belongs in the same
+		// class as request-password-reset/login rather than the default
+		// per-user "api" class (this endpoint is unauthenticated).
+		path == "/api/v1/auth/mfa/reset/request",
 		// MFA verify is the TOTP brute-force surface — the per-challenge
 		// attempt counter and the per-user "mfa" throttle scope live in
 		// authservice, but this per-IP class bounds repeated guesses across

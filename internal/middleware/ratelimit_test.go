@@ -109,6 +109,7 @@ func TestEndpointClass(t *testing.T) {
 		{"/api/v1/auth/request-password-reset", "auth", false},
 		{"/api/v1/auth/verify-email", "auth", false},
 		{"/api/v1/auth/mfa/verify", "auth", false},
+		{"/api/v1/auth/mfa/reset/request", "auth", false},
 		{"/health", "public", false},
 		{"/v1/tiles/foo/bar", "public", false},
 		{"/api/v1/auth/public-keys", "public", false},
