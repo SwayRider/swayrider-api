@@ -18,16 +18,25 @@ import (
 
 // AuthClient is satisfied by *authclient.Client.
 type AuthClient interface {
-	Login(email, password string, rememberMe bool, info ...authclient.ClientInfo) (accessToken, refreshToken string, err error)
+	Login(email, password string, rememberMe bool, info ...authclient.ClientInfo) (accessToken, refreshToken string, mfaRequired bool, mfaToken string, err error)
 	Register(email, password, verificationUrl string) (userId, message string, err error)
 	Refresh(refreshToken string, rememberMe bool, info ...authclient.ClientInfo) (newAccessToken, newRefreshToken string, err error)
 	Logout(refreshToken string) error
 	RequestPasswordReset(email, resetUrl string) error
 	ResetPassword(userId, token, newPassword string) (message string, err error)
+	RequestMfaReset(email, password, backupCode, mfaResetUrl string) error
 	VerifyEmail(email, verificationUrl string) error
 	ChangePassword(accessToken, oldPassword, newPassword string) (message string, err error)
 	CheckPasswordStrength(password string) (isStrong bool, message string, err error)
 	WhoAmI(accessToken string, userCtor authclient.UserCtor) (authclient.User, error)
+
+	// MFA
+	SetupMFA(accessToken string) (secret, otpauthURL, qrPNGBase64 string, err error)
+	EnableMFA(accessToken, code string) (backupCodes []string, err error)
+	DisableMFA(accessToken, password string) error
+	GetMFAStatus(accessToken string) (enabled bool, err error)
+	VerifyMFA(mfaToken, code string, rememberMe bool, info ...authclient.ClientInfo) (accessToken, refreshToken string, err error)
+	GenerateBackupCodes(accessToken, password string) (backupCodes []string, err error)
 
 	// Admin methods
 	CreateAdmin(accessToken, email, password string) (userId, message string, err error)
@@ -116,7 +125,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip, _ := security.GetOrigIp(r.Context())
-	accessToken, refreshToken, err := h.client.Login(
+	accessToken, refreshToken, mfaRequired, mfaToken, err := h.client.Login(
 		req.Email, req.Password, req.RememberMe,
 		authclient.ClientInfo{IP: ip},
 	)
@@ -126,6 +135,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lg.Infof("login ok email_hash=%s ip=%s", emailHash(req.Email), ip)
+	if mfaRequired {
+		// No cookies — the user must complete the second factor first.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"mfa_required": true,
+			"mfa_token":    mfaToken,
+		})
+		return
+	}
 	setAuthCookies(w, r, accessToken, refreshToken)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"access_token":  accessToken,
@@ -226,6 +243,23 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AuthHandler) RequestMfaReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		BackupCode  string `json:"backup_code"`
+		MfaResetURL string `json:"mfa_reset_url"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if err := h.client.RequestMfaReset(req.Email, req.Password, req.BackupCode, req.MfaResetURL); err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		UserID      string `json:"user_id"`
@@ -297,6 +331,129 @@ func (h *AuthHandler) CheckPasswordStrength(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+func (h *AuthHandler) MfaSetup(w http.ResponseWriter, r *http.Request) {
+	token, ok := security.GetJwt(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	secret, otpauthURL, qrPNGBase64, err := h.client.SetupMFA(token)
+	if err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"secret":        secret,
+		"otpauth_url":   otpauthURL,
+		"qr_png_base64": qrPNGBase64,
+	})
+}
+
+func (h *AuthHandler) MfaEnable(w http.ResponseWriter, r *http.Request) {
+	token, ok := security.GetJwt(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Code string `json:"code"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	backupCodes, err := h.client.EnableMFA(token, req.Code)
+	if err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"backup_codes": backupCodes,
+	})
+}
+
+func (h *AuthHandler) MfaDisable(w http.ResponseWriter, r *http.Request) {
+	token, ok := security.GetJwt(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if err := h.client.DisableMFA(token, req.Password); err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AuthHandler) MfaStatus(w http.ResponseWriter, r *http.Request) {
+	token, ok := security.GetJwt(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	enabled, err := h.client.GetMFAStatus(token)
+	if err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": enabled,
+	})
+}
+
+func (h *AuthHandler) MfaVerify(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MfaToken   string `json:"mfa_token"`
+		Code       string `json:"code"`
+		RememberMe bool   `json:"remember_me"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	ip, _ := security.GetOrigIp(r.Context())
+	accessToken, refreshToken, err := h.client.VerifyMFA(
+		req.MfaToken, req.Code, req.RememberMe,
+		authclient.ClientInfo{IP: ip},
+	)
+	if err != nil {
+		h.l.Derive(log.WithFunction("MfaVerify")).Warnf("mfa verify failed: %v", err)
+		writeJSON(w, grpcStatus(err), errBody(err))
+		return
+	}
+	setAuthCookies(w, r, accessToken, refreshToken)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	})
+}
+
+func (h *AuthHandler) MfaBackupCodes(w http.ResponseWriter, r *http.Request) {
+	token, ok := security.GetJwt(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	backupCodes, err := h.client.GenerateBackupCodes(token, req.Password)
+	if err != nil {
+		writeError(w, h.l, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"backup_codes": backupCodes,
+	})
+}
+
 func (h *AuthHandler) WhoAmI(w http.ResponseWriter, r *http.Request) {
 	token, ok := security.GetJwt(r.Context())
 	if !ok {
@@ -328,7 +485,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_id": claims.Subject,
-		"email":   func() any {
+		"email": func() any {
 			if claims.Email != nil {
 				return *claims.Email
 			}

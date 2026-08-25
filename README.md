@@ -126,7 +126,7 @@ Both refresh loops (service token, JWT public keys) bound every fetch attempt wi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RATE_LIMIT_IP_AUTH` | `10` | Requests/min per IP on login, register, password-reset, verify-email |
+| `RATE_LIMIT_IP_AUTH` | `10` | Requests/min per IP on login, register, password-reset, verify-email, mfa-verify |
 | `RATE_LIMIT_IP_PUBLIC` | `600` | Requests/min per IP on tiles, health, public-keys |
 | `RATE_LIMIT_IP_API` | `60` | Requests/min per IP on unauthenticated requests to per-user endpoints (refresh, logout, reset-password, check-password-strength, and floods aimed at protected endpoints) |
 | `RATE_LIMIT_USER_API` | `300` | Requests/min per user on general authenticated endpoints |
@@ -208,7 +208,7 @@ curl http://localhost:8080/health
 
 ### Auth — `/api/v1/auth/*`
 
-The gateway proxies these endpoints to authservice over gRPC. On login, register, and refresh it also sets `access_token` and `refresh_token` cookies (web clients); tokens are always returned in the response body too (mobile clients). On login and refresh the gateway additionally forwards the resolved client IP (from `TRUSTED_PROXIES`-gated `X-Forwarded-For`) to authservice as `x-orig-ip` gRPC metadata; authservice stores it on the refresh token as a soft anomaly signal for audit — it is logged on mismatch, never used to reject a refresh.
+The gateway proxies these endpoints to authservice over gRPC. On login, register, and refresh it also sets `access_token` and `refresh_token` cookies (web clients); tokens are always returned in the response body too (mobile clients). When an account has MFA enabled, login returns `mfa_required: true` plus a one-time `mfa_token` challenge and sets **no** cookies — the caller completes the second factor via `POST /api/v1/auth/mfa/verify`, which then issues the token pair (and cookies) exactly like a completed login. On login, refresh, and mfa-verify the gateway additionally forwards the resolved client IP (from `TRUSTED_PROXIES`-gated `X-Forwarded-For`) to authservice as `x-orig-ip` gRPC metadata; authservice stores it on the refresh token as a soft anomaly signal for audit — it is logged on mismatch, never used to reject a refresh.
 
 | Endpoint | Method | Auth | Notes |
 |----------|--------|------|-------|
@@ -225,6 +225,12 @@ The gateway proxies these endpoints to authservice over gRPC. On login, register
 | `/api/v1/auth/public-keys` | GET | — | Served from gateway key cache |
 | `/api/v1/auth/whoami` | GET | Access token | Full user info from authservice |
 | `/api/v1/auth/me` | GET | Access token | Claims from JWT (no gRPC call) |
+| `/api/v1/auth/mfa/setup` | POST | Access token | Start enrollment → secret + otpauth URL + QR PNG |
+| `/api/v1/auth/mfa/enable` | POST | Access token | Verify one code → enable + backup codes |
+| `/api/v1/auth/mfa/disable` | POST | Access token | Disable (requires password) |
+| `/api/v1/auth/mfa/status` | GET | Access token | MFA enabled? |
+| `/api/v1/auth/mfa/verify` | POST | — | Complete second factor → tokens; rate limited (IP) |
+| `/api/v1/auth/mfa/backup-codes` | POST | Access token | Regenerate backup codes (requires password) |
 | `/api/v1/region/*` | POST | **Access token** | All region endpoints require user JWT |
 | `/api/v1/route` | POST | **Access token** | SSE streaming |
 | `/api/v1/search` | POST | **Access token** | SSE streaming |
@@ -242,6 +248,13 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"email":"user@example.com","password":"secret","remember_me":false}'
 # → 200 {"access_token":"...","refresh_token":"..."}
 # Sets access_token and refresh_token cookies for web clients.
+# When the account has MFA enabled, instead:
+# → 200 {"mfa_required":true,"mfa_token":"..."}  (no cookies)
+# then complete the second factor:
+curl -X POST http://localhost:8080/api/v1/auth/mfa/verify \
+  -H "Content-Type: application/json" \
+  -d '{"mfa_token":"...","code":"123456"}'
+# → 200 {"access_token":"...","refresh_token":"..."} + cookies
 ```
 
 #### Refresh

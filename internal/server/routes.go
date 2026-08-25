@@ -28,6 +28,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/public-keys", auth.PublicKeys)
 	mux.HandleFunc("GET /api/v1/auth/whoami", auth.WhoAmI)
 	mux.HandleFunc("GET /api/v1/auth/me", auth.Me)
+	mux.HandleFunc("POST /api/v1/auth/mfa/setup", auth.MfaSetup)
+	mux.HandleFunc("POST /api/v1/auth/mfa/enable", auth.MfaEnable)
+	mux.HandleFunc("POST /api/v1/auth/mfa/disable", auth.MfaDisable)
+	mux.HandleFunc("GET /api/v1/auth/mfa/status", auth.MfaStatus)
+	mux.HandleFunc("POST /api/v1/auth/mfa/verify", auth.MfaVerify)
+	mux.HandleFunc("POST /api/v1/auth/mfa/backup-codes", auth.MfaBackupCodes)
+	mux.HandleFunc("POST /api/v1/auth/mfa/reset/request", auth.RequestMfaReset)
 
 	// Route (async SSE) — requires verified user
 	mux.Handle("POST /api/v1/route", middleware.RequireVerifiedUser(http.HandlerFunc(s.route.Route)))

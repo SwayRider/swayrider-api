@@ -109,6 +109,29 @@ components:
           description: Hex-encoded 64-byte refresh token (30-day TTL, single-use)
       required: [access_token, refresh_token]
 
+    LoginResponse:
+      type: object
+      description: |
+        Successful login. When the account has MFA enabled the response carries
+        `mfa_required: true` plus a one-time `mfa_token` challenge instead of
+        tokens (no cookies are set); the caller must exchange it via
+        `POST /api/v1/auth/mfa/verify` to obtain the token pair.
+      properties:
+        access_token:
+          type: string
+          description: JWT RS256 access token (15-minute TTL); absent when MFA is required
+        refresh_token:
+          type: string
+          description: Hex-encoded 64-byte refresh token (30-day TTL, single-use); absent when MFA is required
+        mfa_required:
+          type: boolean
+          description: true when the account has MFA enabled and a second factor must be completed
+          example: true
+        mfa_token:
+          type: string
+          description: Single-use pending-login challenge token; present only when `mfa_required` is true
+      required: [mfa_required]
+
     UserInfo:
       type: object
       properties:
@@ -334,13 +357,335 @@ paths:
               required: [email, password]
       responses:
         '200':
-          description: Login successful. Sets `access_token` and `refresh_token` HTTP-only cookies.
+          description: |
+            Login successful. Sets `access_token` and `refresh_token` HTTP-only cookies,
+            unless the account has MFA enabled — then no cookies are set and the response
+            carries `mfa_required: true` + `mfa_token` for the second-factor step.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/setup:
+    post:
+      summary: Start MFA enrollment
+      description: |
+        Generates a fresh TOTP secret for the authenticated user (stored encrypted,
+        not yet enabled) and returns the base32 secret (shown once, for manual entry
+        into an authenticator app), the otpauth URL, and a server-rendered QR PNG of
+        the URL (base64).
+      operationId: mfaSetup
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Enrollment started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                    description: Base32 TOTP secret, shown exactly once
+                  otpauth_url:
+                    type: string
+                  qr_png_base64:
+                    type: string
+                    description: Base64-encoded PNG QR of the otpauth URL
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA already enabled, or MFA disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/enable:
+    post:
+      summary: Complete MFA enrollment
+      description: |
+        Verifies one TOTP code against the pending secret, enables MFA, and issues
+        the fresh backup-code set (plaintext, shown once).
+      operationId: mfaEnable
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: TOTP code from the authenticator app
+              required: [code]
+      responses:
+        '200':
+          description: MFA enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backup_codes:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Invalid authentication code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA already enabled, not set up, or disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/disable:
+    post:
+      summary: Disable MFA
+      description: |
+        Disables MFA for the authenticated user (deletes the enrollment row and all
+        backup codes). The account password is required and verified.
+      operationId: mfaDisable
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  format: password
+              required: [password]
+      responses:
+        '204':
+          description: MFA disabled
+        '401':
+          description: Missing or invalid JWT, or wrong password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/status:
+    get:
+      summary: Get MFA status
+      description: Reports whether the authenticated user has MFA enabled.
+      operationId: mfaStatus
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: MFA status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/verify:
+    post:
+      summary: Complete the second factor
+      description: |
+        Exchanges the pending-login challenge token (from a login that returned
+        `mfa_required`) plus a TOTP code for the normal token pair. On success
+        sets the same HTTP-only cookies as login. Backup codes are not accepted
+        here -- a lost authenticator is recovered via
+        `POST /api/v1/auth/mfa/reset/request` instead.
+      operationId: mfaVerify
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mfa_token:
+                  type: string
+                  description: Challenge token from the login response
+                code:
+                  type: string
+                  description: TOTP code
+                remember_me:
+                  type: boolean
+                  default: false
+              required: [mfa_token, code]
+      responses:
+        '200':
+          description: Second factor accepted. Sets `access_token` and `refresh_token` cookies.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
         '401':
-          description: Invalid credentials
+          description: Invalid, expired, or exhausted challenge; invalid code; locked MFA scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/backup-codes:
+    post:
+      summary: Regenerate backup codes
+      description: |
+        Replaces the authenticated user's backup-code set with a fresh one
+        (invalidating the previous set) and returns the new plaintext codes once.
+        The account password is required.
+      operationId: mfaBackupCodes
+      tags: [auth]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  format: password
+              required: [password]
+      responses:
+        '200':
+          description: New backup codes (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backup_codes:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          description: Missing or invalid JWT, or wrong password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA not enabled, or disabled globally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/mfa/reset/request:
+    post:
+      summary: Request an email-verified MFA/TOTP reset
+      description: |
+        The only way to recover a lost authenticator -- there is no direct
+        backup-code login. Requires all three of: account password, a
+        single-use backup code, and access to the registered email. Verifies
+        email+password with the same protection as login, then consumes one
+        backup code, and only then emails a reset link. The link lands on a
+        web page (the app has no deep-linking yet) that lets the user set up
+        a new authenticator; the current secret stays valid until that
+        page's confirmation step succeeds.
+      operationId: requestMfaReset
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                backup_code:
+                  type: string
+                  description: One of the account's single-use backup codes. Consumed on success.
+                mfa_reset_url:
+                  type: string
+                  format: uri
+              required: [email, password, backup_code, mfa_reset_url]
+      responses:
+        '204':
+          description: Request accepted (email sent if the account exists, the password matches, the backup code is valid and unused, and MFA is enabled)
+        '401':
+          description: Invalid email or password, or invalid/already-used backup code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: MFA not enabled on this account, or disabled globally
           content:
             application/json:
               schema:
