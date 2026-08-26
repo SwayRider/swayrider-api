@@ -368,9 +368,11 @@ Tagging follows the same branch-based convention as other SwayRider services:
 Non-release builds get an incrementing build number (`-b{N}`) so repeated builds of the same branch don't overwrite each other. The number comes from querying the registry for the highest existing `-b{N}` tag on the same base tag and adding 1; the build fails if the registry can't be reached. Release builds are immutable and never get a build number.
 
 ```bash
-# Also push dev-latest on a release tag
+# Also push dev-latest on a release tag or any other branch
 FORCE_DEV_LATEST=1 make container-build
 ```
+
+Or, across all services at once, `tools/containerbuild.py --dev-latest`.
 
 ## Development
 
