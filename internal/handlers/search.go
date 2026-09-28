@@ -8,20 +8,20 @@ import (
 	"net/http"
 
 	"github.com/swayrider/grpcclients/searchclient"
+	"github.com/swayrider/swayrider-api/internal/queue"
+	"github.com/swayrider/swayrider-api/internal/sse"
 	"github.com/swayrider/swlib/jwt"
 	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
-	"github.com/swayrider/swayrider-api/internal/queue"
-	"github.com/swayrider/swayrider-api/internal/sse"
 )
 
 // SearchRequest is the JSON body accepted by POST /api/v1/search.
 type SearchRequest struct {
-	Text       string        `json:"text"`
-	Viewport   SearchBBox    `json:"viewport"`
-	FocusPoint *SearchCoord  `json:"focusPoint,omitempty"`
-	Size       int32         `json:"size"`
-	Language   string        `json:"language"`
+	Text       string       `json:"text"`
+	Viewport   SearchBBox   `json:"viewport"`
+	FocusPoint *SearchCoord `json:"focusPoint,omitempty"`
+	Size       int32        `json:"size"`
+	Language   string       `json:"language"`
 }
 
 // ReverseGeocodeRequest is the JSON body accepted by POST /api/v1/search/reverse.
@@ -34,10 +34,11 @@ type ReverseGeocodeRequest struct {
 
 // AutocompleteRequest is the JSON body accepted by POST /api/v1/search/autocomplete.
 type AutocompleteRequest struct {
-	Text       string      `json:"text"`
-	FocusPoint SearchCoord `json:"focusPoint"`
-	Size       int32       `json:"size"`
-	Language   string      `json:"language"`
+	Text              string      `json:"text"`
+	FocusPoint        SearchCoord `json:"focusPoint"`
+	Size              int32       `json:"size"`
+	Language          string      `json:"language"`
+	TargetHousenumber string      `json:"targetHousenumber"`
 }
 
 // SearchCoord is a lat/lon pair used in search requests.
@@ -130,10 +131,11 @@ func (h *SearchHandler) Autocomplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := searchclient.AutocompleteQuery{
-		Text:       req.Text,
-		FocusPoint: searchclient.Coordinate{Latitude: req.FocusPoint.Lat, Longitude: req.FocusPoint.Lon},
-		Size:       req.Size,
-		Language:   req.Language,
+		Text:              req.Text,
+		FocusPoint:        searchclient.Coordinate{Latitude: req.FocusPoint.Lat, Longitude: req.FocusPoint.Lon},
+		Size:              req.Size,
+		Language:          req.Language,
+		TargetHousenumber: req.TargetHousenumber,
 	}
 
 	var items []queue.SearchItem
@@ -317,7 +319,7 @@ func runReverseGeocode(ctx context.Context, client *searchclient.Client, token f
 // --- concrete implementation of searchclient.SearchResult ---
 
 type searchResultImpl struct {
-	label, locality, region, country string
+	label, locality, region, country  string
 	confidence                        float64
 	layer                             string
 	lat, lon                          float64

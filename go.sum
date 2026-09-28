@@ -48,8 +48,12 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/swayrider/grpcclients v0.1.8 h1:F54cmfldYIY58V04gN5yfndTSTYVuyPqAWH0CTymtLs=
 github.com/swayrider/grpcclients v0.1.8/go.mod h1:QUdpwicLFgM+Sb3fJbV+u/Qza2BRKj17i7P8tNvuYSo=
+github.com/swayrider/grpcclients v0.1.9-0.20260928120951-0209da8be7b7 h1:Fr0UynHCCOy5FdHFKOGKdmWFXVdFXaMvnk200YGDU7g=
+github.com/swayrider/grpcclients v0.1.9-0.20260928120951-0209da8be7b7/go.mod h1:5A1z31mDyoA95SkypEU3RgIxoWIdwf2TqMs4vaRzmmY=
 github.com/swayrider/protos v0.1.5 h1:tGHhiE5yvEbu8cMhefA+q/Ciakwy7zkDt0PaZsz4lkA=
 github.com/swayrider/protos v0.1.5/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
+github.com/swayrider/protos v0.1.6-0.20260928115831-7a63bbd11e37 h1:+eu6WaXz6jNhjcFOzNEEVnGujSYFyuHX5uBhUo9jtDw=
+github.com/swayrider/protos v0.1.6-0.20260928115831-7a63bbd11e37/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
 github.com/swayrider/swlib v0.1.10 h1:0lolzEzVjKRaU7BTEgm5Xq0bhgAD1JmsCfT5R6EHNhY=
 github.com/swayrider/swlib v0.1.10/go.mod h1:i4OrDBXB9hREl428e07gvfAcRUCvi6ccSKRzdey46Aw=
 github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=
