@@ -37,7 +37,8 @@ Rate limits are configured per-class via environment variables. Defaults apply i
 | Class | Key | Applies To |
 |---|---|---|
 | `auth` | Client IP | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/request-password-reset`, `/api/v1/auth/verify-email`, `/api/v1/auth/mfa/verify` (TOTP brute-force surface) |
-| `public` | Client IP | `/health`, `/v1/tiles/*`, `/api/v1/auth/public-keys` |
+| `public` | Client IP | `/health`, `/api/v1/auth/public-keys` |
+| `tiles` | User ID, or IP when unauthenticated | `/v1/tiles/*` (tiles, styles, glyphs, sprites). Default `RATE_LIMIT_USER_TILES=3000`/min per user; without a token the stricter `RATE_LIMIT_IP_API` applies |
 | `expensive` | User ID, or IP when unauthenticated | `/api/v1/route`, `/api/v1/search*` |
 | `api` | User ID, or IP when unauthenticated | All other endpoints (refresh, logout, reset-password, check-password-strength, region, admin, `/web/*`, …) |
 
@@ -674,14 +675,19 @@ Find all corridor-constrained region paths for a polyline (route shape).
 Reverse proxy to `tilesservice`. Injects a service client token with `tiles:serve` scope into the `Authorization` header. All endpoints under `/v1/tiles/` are proxied.
 
 - **Security:** Verified user required (`RequireVerifiedUser` middleware)
-- **Rate limit class:** `public` (IP-based)
+- **Rate limit class:** `tiles` (per user, `RATE_LIMIT_USER_TILES`, default 3000/min; IP-based and much stricter without a token)
 - **Path:** Anything under `/v1/tiles/` — the full path is forwarded to tilesservice.
+- **Credentials:** native clients must send `Authorization: Bearer <access token>` on every map request (style, tiles, glyphs, sprites); web clients send the `access_token` cookie. A rate-limited request answers `429` with `Retry-After: 60`.
 
 For the full tiles sub-API, see the upstream service:
-- `GET /v1/tiles/ping` — Health check (public)
-- `GET /v1/tiles/styles` — List map styles (requires `tiles:serve` scope)
-- `GET /v1/tiles/styles/{name}` — Serve a MapLibre GL style (requires `tiles:serve` scope)
-- `GET /v1/tiles/{tileset}/{z}/{x}/{y}` — Serve MVT vector tile (requires `tiles:serve` scope)
+- `GET /v1/tiles/ping` — Liveness (public upstream; through the gateway it needs a verified user like everything else here)
+- `GET /v1/tiles/ready` — Readiness: loaded release, tileset build, style versions
+- `GET /v1/tiles/styles` — List map styles
+- `GET /v1/tiles/styles/{name}` — A MapLibre GL style (legacy file, or the alias `light`/`dark` or a style id of the active release)
+- `GET /v1/tiles/styles/{id}/{variant}` and `GET /v1/tiles/styles/{id}/{version}/{variant}` — A release style, `light` or `dark`
+- `GET /v1/tiles/fonts/{fontstack}/{range}.pbf` — Glyph range
+- `GET /v1/tiles/sprites/{name}[@2x].{json,png}` — Sprite sheet
+- `GET /v1/tiles/{tileset}/{z}/{x}/{y}` — MVT vector tile (`planet` from PMTiles, `base` legacy MBTiles)
 
 ---
 
@@ -978,7 +984,7 @@ Errors are returned as JSON:
 | `POST` | `/api/v1/region/find-crossing-locations` | Verified user | `api` |
 | `POST` | `/api/v1/region/find-region-path` | Verified user | `api` |
 | `POST` | `/api/v1/region/find-route-region-paths` | Verified user | `api` |
-| `(any)` | `/v1/tiles/*` | Verified user (proxy) | `public` |
+| `(any)` | `/v1/tiles/*` | Verified user (proxy) | `tiles` |
 | `(any)` | `/web/*` | Public (proxy) | `api` |
 | `POST` | `/api/v1/auth/admin/create-admin` | Admin | `api` |
 | `POST` | `/api/v1/auth/admin/change-account-type` | Admin | `api` |

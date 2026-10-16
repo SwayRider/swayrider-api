@@ -18,16 +18,17 @@ type RateLimiter interface {
 
 type RateLimitConfig struct {
 	IPAuth        int // per-IP limit for the auth class (login, register, password flows)
-	IPPublic      int // per-IP limit for the public class (health, tiles, public-keys)
+	IPPublic      int // per-IP limit for the public class (health, public-keys)
 	IPAPI         int // per-IP limit for unauthenticated requests to per-user (api/expensive) endpoints
 	UserAPI       int // per-user limit for the api class
 	UserExpensive int // per-user limit for the expensive class (route, search)
+	UserTiles     int // per-user limit for the tiles class (map tiles, styles, glyphs, sprites)
 }
 
 // RateLimit applies sliding-window rate limits based on the request path and auth state.
 //
 // Every request is limited. Classes that are inherently per-IP (auth, public) always
-// limit by IP. Classes that are per-user (api, expensive) limit by user when the
+// limit by IP. Classes that are per-user (api, expensive, tiles) limit by user when the
 // request is authenticated and by IP when it is not — so unauthenticated requests
 // (verify-email, refresh, reset-password, or floods aimed at protected endpoints)
 // can never bypass the limiter by simply omitting a token.
@@ -54,8 +55,11 @@ func RateLimit(limiter RateLimiter, cfg RateLimitConfig, l *log.Logger) func(htt
 			case perUser && authed:
 				userID := claims.Subject
 				limit := cfg.UserAPI
-				if class == "expensive" {
+				switch class {
+				case "expensive":
 					limit = cfg.UserExpensive
+				case "tiles":
+					limit = cfg.UserTiles
 				}
 				allowed, err = limiter.Allow(ctx, fmt.Sprintf("rl:%s:user:%s", class, userID), limit, time.Minute)
 			case perUser:
@@ -109,9 +113,13 @@ func endpointClass(path string) (class string, perUser bool) {
 		path == "/api/v1/auth/mfa/verify":
 		return "auth", false
 	case path == "/health",
-		strings.HasPrefix(path, "/v1/tiles/"),
 		path == "/api/v1/auth/public-keys":
 		return "public", false
+	case strings.HasPrefix(path, "/v1/tiles/"):
+		// A map view fires dozens of requests (tiles, style, glyph ranges, sprite), so tiles get
+		// their own generous per-user budget instead of sharing the per-IP public class with
+		// /health. Unauthenticated tile requests fall into the stricter per-IP api budget.
+		return "tiles", true
 	case strings.HasPrefix(path, "/api/v1/route"),
 		strings.HasPrefix(path, "/api/v1/search"):
 		return "expensive", true

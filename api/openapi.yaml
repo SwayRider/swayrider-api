@@ -1644,10 +1644,18 @@ paths:
         `tiles:serve` scope. The full path is forwarded to tilesservice.
 
         Common sub-paths:
-        - `ping` — health check (public on upstream)
+        - `ping` — liveness (public upstream; through the gateway a verified user is required)
+        - `ready` — readiness: loaded release, tileset build, style versions
         - `styles` — list map styles
-        - `styles/{name}` — serve a MapLibre GL style
-        - `{tileset}/{z}/{x}/{y}` — serve an MVT vector tile
+        - `styles/{name}` — serve a MapLibre GL style (legacy file, or the alias `light`/`dark` or a style id of the active release)
+        - `styles/{id}/{variant}`, `styles/{id}/{version}/{variant}` — a release style, `light` or `dark`
+        - `fonts/{fontstack}/{range}.pbf` — glyph range
+        - `sprites/{name}[@2x].{json,png}` — sprite sheet
+        - `{tileset}/{z}/{x}/{y}` — serve an MVT vector tile (`planet` from PMTiles, `base` legacy MBTiles)
+
+        Every map request (style, tiles, glyphs, sprites) needs credentials. Rate limit
+        class `tiles`: per user (`RATE_LIMIT_USER_TILES`, default 3000/min), per IP with the
+        stricter `RATE_LIMIT_IP_API` budget without a token.
       operationId: getTile
       tags: [tiles]
       security:
@@ -1671,6 +1679,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded (Retry-After header, 60 seconds)
           content:
             application/json:
               schema:

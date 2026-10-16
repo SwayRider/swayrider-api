@@ -127,10 +127,11 @@ Both refresh loops (service token, JWT public keys) bound every fetch attempt wi
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RATE_LIMIT_IP_AUTH` | `10` | Requests/min per IP on login, register, password-reset, verify-email, mfa-verify |
-| `RATE_LIMIT_IP_PUBLIC` | `600` | Requests/min per IP on tiles, health, public-keys |
+| `RATE_LIMIT_IP_PUBLIC` | `600` | Requests/min per IP on health, public-keys |
 | `RATE_LIMIT_IP_API` | `60` | Requests/min per IP on unauthenticated requests to per-user endpoints (refresh, logout, reset-password, check-password-strength, and floods aimed at protected endpoints) |
 | `RATE_LIMIT_USER_API` | `300` | Requests/min per user on general authenticated endpoints |
 | `RATE_LIMIT_USER_EXPENSIVE` | `20` | Requests/min per user on route and search endpoints |
+| `RATE_LIMIT_USER_TILES` | `3000` | Requests/min per user on map traffic under `/v1/tiles/` (tiles, styles, glyphs, sprites). One map view is dozens of requests; tile requests without a token fall under `RATE_LIMIT_IP_API` |
 | `RATE_LIMIT_DEGRADE_MODE` | `memory` | Behavior when Redis is unreachable: `memory` (in-process fallback with same limits, per instance) or `deny` (fail closed, 429 everything) |
 | `RATE_LIMIT_DEGRADE_THRESHOLD` | `3` | Consecutive Redis failures before the limiter degrades (fail-open below this) |
 | `RATE_LIMIT_REDIS_PROBE_SECONDS` | `15` | How often the limiter probes Redis for recovery while degraded |
@@ -312,7 +313,7 @@ curl -X POST http://localhost:8080/api/v1/region/search-point \
 
 ### Tiles — `/v1/tiles/*`
 
-HTTP reverse proxy to tilesservice. No authentication required.
+HTTP reverse proxy to tilesservice. Requires a verified user (access token as `Authorization: Bearer` or the `access_token` cookie); the gateway injects its own `tiles:serve` service token.
 
 ```bash
 curl http://localhost:8080/v1/tiles/styles

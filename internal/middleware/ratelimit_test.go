@@ -70,6 +70,7 @@ func newRateLimitHarness() (*fakeLimiter, http.Handler) {
 		IPAPI:         60,
 		UserAPI:       300,
 		UserExpensive: 20,
+		UserTiles:     3000,
 	}
 	h := RateLimit(fl, cfg, log.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -111,7 +112,9 @@ func TestEndpointClass(t *testing.T) {
 		{"/api/v1/auth/mfa/verify", "auth", false},
 		{"/api/v1/auth/mfa/reset/request", "auth", false},
 		{"/health", "public", false},
-		{"/v1/tiles/foo/bar", "public", false},
+		{"/v1/tiles/foo/bar", "tiles", true},
+		{"/v1/tiles/styles/classic/light", "tiles", true},
+		{"/v1/tiles/fonts/Noto%20Sans%20Regular/0-255.pbf", "tiles", true},
 		{"/api/v1/auth/public-keys", "public", false},
 		{"/api/v1/auth/refresh", "api", true},
 		{"/api/v1/auth/reset-password", "api", true},
@@ -270,5 +273,80 @@ func TestRateLimitPublicClassLimitsPerIP(t *testing.T) {
 	}
 	if call.limit != 600 {
 		t.Errorf("health limit = %d, want %d (IPPublic)", call.limit, 600)
+	}
+}
+
+// Map traffic has its own per-user budget: every tiles path (tiles, styles, glyphs, sprites,
+// TileJSON) is the same class, keyed by user, and none of it counts against the per-IP public class.
+func TestRateLimitTilesClassLimitsPerUser(t *testing.T) {
+	for _, path := range []string{
+		"/v1/tiles/planet/12/2097/1373",
+		"/v1/tiles/styles",
+		"/v1/tiles/styles/classic/3/light",
+		"/v1/tiles/fonts/Noto%20Sans%20Regular/0-255.pbf",
+		"/v1/tiles/sprites/light@2x.png",
+		"/v1/tiles/planet/tiles.json",
+		"/v1/tiles/ping",
+	} {
+		fl, h := newRateLimitHarness()
+		doRequest(h, requestWithUser(path, "1.2.3.4", "user-123"))
+		call := fl.lastCall()
+		if call.key != "rl:tiles:user:user-123" {
+			t.Errorf("%s: key = %q, want %q", path, call.key, "rl:tiles:user:user-123")
+		}
+		if call.limit != 3000 {
+			t.Errorf("%s: limit = %d, want %d (UserTiles)", path, call.limit, 3000)
+		}
+	}
+}
+
+// Two users behind one IP (a NAT, an office) do not share a budget.
+func TestRateLimitTilesClassIsPerUserNotPerIP(t *testing.T) {
+	fl, h := newRateLimitHarness()
+	doRequest(h, requestWithUser("/v1/tiles/planet/1/0/0", "9.9.9.9", "alice"))
+	doRequest(h, requestWithUser("/v1/tiles/planet/1/0/0", "9.9.9.9", "bob"))
+	if a, b := fl.callAt(0).key, fl.callAt(1).key; a == b || a != "rl:tiles:user:alice" || b != "rl:tiles:user:bob" {
+		t.Errorf("keys = %q and %q", a, b)
+	}
+}
+
+// Without a token the request is limited per IP with the api budget (and the gateway answers 401
+// anyway), so a flood of anonymous tile requests is throttled hard.
+func TestRateLimitTilesUnauthenticatedFallsBackToIP(t *testing.T) {
+	fl, h := newRateLimitHarness()
+	doRequest(h, requestWithIP("/v1/tiles/planet/1/0/0", "1.2.3.4"))
+	call := fl.lastCall()
+	if call.key != "rl:tiles:ip:1.2.3.4" {
+		t.Errorf("key = %q, want %q", call.key, "rl:tiles:ip:1.2.3.4")
+	}
+	if call.limit != 60 {
+		t.Errorf("limit = %d, want %d (IPAPI)", call.limit, 60)
+	}
+}
+
+// Tiles no longer share the per-IP public class with /health and the public keys.
+func TestRateLimitPublicClassExcludesTiles(t *testing.T) {
+	for _, path := range []string{"/health", "/api/v1/auth/public-keys"} {
+		fl, h := newRateLimitHarness()
+		doRequest(h, requestWithUser(path, "1.2.3.4", "user-123"))
+		if call := fl.lastCall(); call.key != "rl:pub:ip:1.2.3.4" || call.limit != 600 {
+			t.Errorf("%s: %q limit %d", path, call.key, call.limit)
+		}
+	}
+	for _, path := range []string{"/v1/tiles/ping", "/v1/tiles/planet/0/0/0"} {
+		class, perUser := endpointClass(path)
+		if class != "tiles" || !perUser {
+			t.Errorf("%s: class %q perUser %v", path, class, perUser)
+		}
+	}
+}
+
+// A throttled map answers 429 with Retry-After like every other class.
+func TestRateLimitTilesDeniedReturns429(t *testing.T) {
+	fl, h := newRateLimitHarness()
+	fl.allow = false
+	rec := doRequest(h, requestWithUser("/v1/tiles/planet/1/0/0", "1.2.3.4", "user-123"))
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("status %d Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 }
