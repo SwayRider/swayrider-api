@@ -20,8 +20,10 @@ func newProxyTransport() *http.Transport {
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
+		MaxIdleConns:          200,
+		// A map view opens dozens of parallel tile requests to the same host; with few idle
+		// connections per host the proxy would open and close connections in bursts.
+		MaxIdleConnsPerHost: 64,
 	}
 }
 

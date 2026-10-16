@@ -221,6 +221,18 @@ func TestNewProxyTransport_HasTimeouts(t *testing.T) {
 	}
 }
 
+// A map view opens dozens of parallel requests to tilesservice: the pool must keep more idle
+// connections per host than the net/http default of 2, or the proxy reconnects in bursts.
+func TestNewProxyTransport_KeepsEnoughIdleConnectionsForTiles(t *testing.T) {
+	tr := newProxyTransport()
+	if tr.MaxIdleConnsPerHost < 50 {
+		t.Errorf("MaxIdleConnsPerHost = %d, want >= 50", tr.MaxIdleConnsPerHost)
+	}
+	if tr.MaxIdleConns < tr.MaxIdleConnsPerHost {
+		t.Errorf("MaxIdleConns = %d is below MaxIdleConnsPerHost = %d", tr.MaxIdleConns, tr.MaxIdleConnsPerHost)
+	}
+}
+
 // proxyTarget splits a test-server URL into the host and port that the
 // proxies expect (they build their own target URL from host:port).
 func proxyTarget(t *testing.T, rawURL string) (host string, port int) {

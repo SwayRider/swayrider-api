@@ -76,6 +76,7 @@ func (s *Server) Run(ctx context.Context) {
 		IPAPI:         s.cfg.RateLimitIPAPI,
 		UserAPI:       s.cfg.RateLimitUserAPI,
 		UserExpensive: s.cfg.RateLimitUserExpensive,
+		UserTiles:     s.cfg.RateLimitUserTiles,
 	}
 
 	// Middleware chain (innermost first): mux → bodyLimit → rateLimit → logging → auth → cors

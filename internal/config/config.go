@@ -44,6 +44,7 @@ type Config struct {
 	RateLimitIPAPI         int
 	RateLimitUserAPI       int
 	RateLimitUserExpensive int
+	RateLimitUserTiles     int
 
 	// Rate limit Redis-degradation behavior.
 	RateLimitDegradeMode      string // "memory" (default) or "deny"
@@ -116,6 +117,7 @@ func Load() *Config {
 		RateLimitIPAPI:         env.GetAsInt("RATE_LIMIT_IP_API", 60),
 		RateLimitUserAPI:       env.GetAsInt("RATE_LIMIT_USER_API", 300),
 		RateLimitUserExpensive: env.GetAsInt("RATE_LIMIT_USER_EXPENSIVE", 20),
+		RateLimitUserTiles:     env.GetAsInt("RATE_LIMIT_USER_TILES", 3000),
 
 		RateLimitDegradeMode:      env.Get("RATE_LIMIT_DEGRADE_MODE", "memory"),
 		RateLimitDegradeThreshold: env.GetAsInt("RATE_LIMIT_DEGRADE_THRESHOLD", 3),
