@@ -70,6 +70,7 @@ func newRateLimitHarness() (*fakeLimiter, http.Handler) {
 		IPAPI:         60,
 		UserAPI:       300,
 		UserExpensive: 20,
+		UserReroute:   12,
 		UserTiles:     3000,
 	}
 	h := RateLimit(fl, cfg, log.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +130,7 @@ func TestEndpointClass(t *testing.T) {
 		{"/api/v1/auth/mfa/backup-codes", "api", true},
 		{"/web/", "api", true},
 		{"/api/v1/route", "expensive", true},
+		{"/api/v1/route/rejoin", "reroute", true},
 		{"/api/v1/search", "expensive", true},
 		{"/api/v1/search/autocomplete", "expensive", true},
 	}
@@ -232,6 +234,17 @@ func TestRateLimitAuthenticatedPerUserClassLimitsPerUser(t *testing.T) {
 	}
 	if call.limit != 20 {
 		t.Errorf("route limit = %d, want %d (UserExpensive)", call.limit, 20)
+	}
+
+	// Getting back on a route has its own budget and its own key.
+	fl3, h3 := newRateLimitHarness()
+	doRequest(h3, requestWithUser("/api/v1/route/rejoin", "1.2.3.4", "user-123"))
+	call = fl3.lastCall()
+	if call.key != "rl:reroute:user:user-123" {
+		t.Errorf("rejoin key = %q, want %q", call.key, "rl:reroute:user:user-123")
+	}
+	if call.limit != 12 {
+		t.Errorf("rejoin limit = %d, want %d (UserReroute)", call.limit, 12)
 	}
 }
 

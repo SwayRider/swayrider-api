@@ -13,7 +13,10 @@ import (
 const (
 	StreamRouting = "sw:jobs:routing"
 	StreamSearch  = "sw:jobs:search"
-	GroupName     = "workers"
+	// StreamRerouting carries rejoin jobs (getting back on a route), kept
+	// apart so they never wait behind route planning.
+	StreamRerouting = "sw:jobs:rerouting"
+	GroupName       = "workers"
 )
 
 // ErrQueueFull is returned when the stream has reached its depth limit.
@@ -32,7 +35,7 @@ func NewProducer(rdb *redis.Client, maxDepth int) *Producer {
 // Bootstrap creates the consumer groups (and streams) if they don't exist yet.
 // BUSYGROUP errors are silently ignored.
 func (p *Producer) Bootstrap(ctx context.Context) {
-	for _, stream := range []string{StreamRouting, StreamSearch} {
+	for _, stream := range []string{StreamRouting, StreamSearch, StreamRerouting} {
 		p.redis.XGroupCreateMkStream(ctx, stream, GroupName, "0")
 	}
 }

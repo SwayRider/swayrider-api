@@ -10,22 +10,22 @@ import (
 
 	"github.com/swayrider/grpcclients/routerclient"
 	"github.com/swayrider/protos/router/v1"
+	"github.com/swayrider/swayrider-api/internal/queue"
+	"github.com/swayrider/swayrider-api/internal/sse"
 	"github.com/swayrider/swlib/jwt"
 	log "github.com/swayrider/swlib/logger"
 	"github.com/swayrider/swlib/security"
-	"github.com/swayrider/swayrider-api/internal/queue"
-	"github.com/swayrider/swayrider-api/internal/sse"
 )
 
 // RouteRequest is the JSON body accepted by POST /api/v1/route.
 type RouteRequest struct {
-	From      RouteCoord       `json:"from"`
-	To        RouteCoord       `json:"to"`
-	Waypoints []RouteWaypoint  `json:"waypoints,omitempty"`
-	Vehicle   string           `json:"vehicle"`
-	Unit      string           `json:"unit,omitempty"`
-	Language  string           `json:"language,omitempty"`
-	Options   RouteOptions     `json:"options"`
+	From      RouteCoord      `json:"from"`
+	To        RouteCoord      `json:"to"`
+	Waypoints []RouteWaypoint `json:"waypoints,omitempty"`
+	Vehicle   string          `json:"vehicle"`
+	Unit      string          `json:"unit,omitempty"`
+	Language  string          `json:"language,omitempty"`
+	Options   RouteOptions    `json:"options"`
 }
 
 // RouteCoord is a lat/lon pair.
@@ -79,6 +79,24 @@ func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	streamJob(w, r, h.producer, h.hub, queue.StreamRouting, req, claims, h.l.Derive(log.WithFunction("Route")),
+		fmt.Sprintf("from=%.4f,%.4f to=%.4f,%.4f vehicle=%s", req.From.Lat, req.From.Lon, req.To.Lat, req.To.Lon, req.Vehicle))
+}
+
+// streamJob enqueues a job for the submitting user on stream and answers the
+// request as a Server-Sent Events stream: a `queued` event now, the result or
+// an error when a worker is done.
+func streamJob(
+	w http.ResponseWriter,
+	r *http.Request,
+	producer *queue.Producer,
+	hub *sse.Hub,
+	stream string,
+	body any,
+	claims *jwt.Claims,
+	lg *log.Logger,
+	summary string,
+) {
 	userClaims, _ := claims.SwayRiderClaims.(*jwt.SwayRiderUserClaims)
 	accountLevel := ""
 	isAdmin := false
@@ -88,15 +106,13 @@ func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
 	}
 	userVerified := claims.EmailVerified != nil && *claims.EmailVerified
 
-	payload, err := json.Marshal(req)
+	payload, err := json.Marshal(body)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	lg := h.l.Derive(log.WithFunction("Route"))
-
-	jobID, err := h.producer.Enqueue(r.Context(), queue.StreamRouting, queue.Job{
+	jobID, err := producer.Enqueue(r.Context(), stream, queue.Job{
 		Payload:      string(payload),
 		UserID:       claims.Subject,
 		AccountLevel: accountLevel,
@@ -104,32 +120,31 @@ func (h *RouteHandler) Route(w http.ResponseWriter, r *http.Request) {
 		UserVerified: fmt.Sprintf("%t", userVerified),
 	})
 	if errors.Is(err, queue.ErrQueueFull) {
-		lg.Warnf("queue full user=%s", claims.Subject)
+		lg.Warnf("queue full stream=%s user=%s", stream, claims.Subject)
 		w.Header().Set("Retry-After", "30")
 		http.Error(w, "queue full", http.StatusTooManyRequests)
 		return
 	}
 	if err != nil {
-		lg.Errorf("enqueue failed user=%s err=%v", claims.Subject, err)
+		lg.Errorf("enqueue failed stream=%s user=%s err=%v", stream, claims.Subject, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	lg.Infof("route enqueued job_id=%s user=%s from=%.4f,%.4f to=%.4f,%.4f vehicle=%s",
-		jobID, claims.Subject, req.From.Lat, req.From.Lon, req.To.Lat, req.To.Lon, req.Vehicle)
+	lg.Infof("job enqueued stream=%s job_id=%s user=%s %s", stream, jobID, claims.Subject, summary)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	depth, _ := h.producer.QueueDepth(r.Context(), queue.StreamRouting)
+	depth, _ := producer.QueueDepth(r.Context(), stream)
 	writeSSEEvent(w, "queued", fmt.Sprintf(`{"job_id":%q,"queue_position":%d}`, jobID, depth))
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
 
-	h.hub.WaitForResult(r.Context(), w, jobID, claims.Subject)
+	hub.WaitForResult(r.Context(), w, jobID, claims.Subject)
 }
 
 // NewRouteProcessFn returns the worker ProcessFn for routing jobs.
@@ -279,14 +294,20 @@ func toManeuverResult(m *routerv1.Maneuver) queue.ManeuverResult {
 		Rough:                            m.Rough,
 		Gate:                             m.Gate,
 		Ferry:                            m.Ferry,
-		RoundaboutExitCount:              func() *int { if m.RoundaboutExitCount != nil { v := int(*m.RoundaboutExitCount); return &v }; return nil }(),
-		DepartInstruction:                m.DepartInstruction,
-		VerbalDepartInstruction:          m.VerbalDepartInstruction,
-		ArriveInstruction:                m.ArriveInstruction,
-		VerbalArriveInstruction:          m.VerbalArriveInstruction,
-		VerbalMultiCue:                   m.VerbalMultiCue,
-		BearingBefore:                    int(m.BearingBefore),
-		BearingAfter:                     int(m.BearingAfter),
+		RoundaboutExitCount: func() *int {
+			if m.RoundaboutExitCount != nil {
+				v := int(*m.RoundaboutExitCount)
+				return &v
+			}
+			return nil
+		}(),
+		DepartInstruction:       m.DepartInstruction,
+		VerbalDepartInstruction: m.VerbalDepartInstruction,
+		ArriveInstruction:       m.ArriveInstruction,
+		VerbalArriveInstruction: m.VerbalArriveInstruction,
+		VerbalMultiCue:          m.VerbalMultiCue,
+		BearingBefore:           int(m.BearingBefore),
+		BearingAfter:            int(m.BearingAfter),
 	}
 	if m.Sign != nil {
 		r.Sign = toSignResult(m.Sign)

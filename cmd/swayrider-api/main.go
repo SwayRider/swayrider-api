@@ -111,6 +111,7 @@ func main() {
 	// Queue producer + consumer group bootstrap
 	producer := queue.NewProducer(redisClient, cfg.QueueMaxDepth)
 	producer.Bootstrap(ctx)
+	rerouteProducer := queue.NewProducer(redisClient, cfg.RerouteQueueMaxDepth)
 
 	// SSE hub
 	hub := sse.New(redisClient, lg)
@@ -128,6 +129,16 @@ func main() {
 	})
 	routeWorkers.Start(ctx)
 
+	rerouteWorkers := queue.NewWorkerPool(queue.WorkerConfig{
+		Redis:     redisClient,
+		Stream:    queue.StreamRerouting,
+		Count:     cfg.RerouteWorkerCount,
+		Process:   handlers.NewRejoinProcessFn(routerClt, tokenMgr.Token, breakers),
+		ResultTTL: resultTTL,
+		Logger:    lg,
+	})
+	rerouteWorkers.Start(ctx)
+
 	searchWorkers := queue.NewWorkerPool(queue.WorkerConfig{
 		Redis:     redisClient,
 		Stream:    queue.StreamSearch,
@@ -142,10 +153,11 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authClt, keyCache, lg)
 	regionHandler := handlers.NewRegionHandler(regionClt, tokenMgr.Token, lg)
 	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
+	rejoinHandler := handlers.NewRejoinHandler(rerouteProducer, hub, lg)
 	searchHandler := handlers.NewSearchHandler(producer, hub, searchClt, tokenMgr.Token, breakers, lg)
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
 	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, cfg.AuthServiceWebPort, cfg.AuthServiceWebPathPrefix)
 
-	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
+	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, rejoinHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
 	srv.Run(ctx)
 }

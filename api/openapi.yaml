@@ -1139,6 +1139,140 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+
+  /api/v1/route/rejoin:
+    post:
+      summary: Get back onto a route (async SSE)
+      description: |
+        For a rider who left a planned route: calculates the way back onto it.
+        The request is a route request describing a **fresh route** from the
+        rider's position (`from`, with `fromHeading`) to the remaining stops,
+        plus up to 6 points of the **original route** (`rejoin`). For every
+        point a connector is calculated (leaving in the direction of travel,
+        arriving in the direction of the original route); the best one is
+        returned unless a fresh route is clearly faster.
+
+        Rejoin requests have their own queue, workers and rate limit.
+
+        SSE events:
+        - `queued` — `{"job_id":"…","queue_position":N}`
+        - `result` — `{"choice":"rejoin"|"fresh","rejoin_index":N,"trip":{…}}`;
+          for `rejoin` the trip is the connector to `rejoin[rejoin_index]`,
+          for `fresh` it is the fresh route
+        - `error` — `{"error":"…"}`
+      operationId: rejoinRoute
+      tags: [route]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  $ref: '#/components/schemas/LatLon'
+                to:
+                  $ref: '#/components/schemas/LatLon'
+                waypoints:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Waypoint'
+                vehicle:
+                  type: string
+                  enum: [car, motorscooter, motorcycle]
+                unit:
+                  type: string
+                  example: kilometers
+                language:
+                  type: string
+                  example: en-US
+                options:
+                  $ref: '#/components/schemas/RouteOptions'
+                fromHeading:
+                  type: integer
+                  minimum: 0
+                  maximum: 359
+                  description: Rider's direction of travel in degrees clockwise from north
+                fromHeadingTolerance:
+                  type: integer
+                  minimum: 1
+                  maximum: 180
+                  default: 45
+                exclusions:
+                  type: array
+                  maxItems: 6
+                  description: Areas to avoid (suspected closures), as rings of 3-40 points, each within about 2 km
+                  items:
+                    type: array
+                    minItems: 3
+                    maxItems: 40
+                    items:
+                      $ref: '#/components/schemas/LatLon'
+                rejoin:
+                  type: array
+                  maxItems: 6
+                  items:
+                    type: object
+                    properties:
+                      lat:
+                        type: number
+                      lon:
+                        type: number
+                      heading:
+                        type: integer
+                        minimum: 0
+                        maximum: 359
+                        description: Direction of the original route at the point
+                      remainingSeconds:
+                        type: number
+                        description: Travel time left on the original route after the point
+                    required: [lat, lon, heading, remainingSeconds]
+              required: [from, to, vehicle, rejoin]
+      responses:
+        '200':
+          description: SSE stream. Connection stays open until `result` or `error` event is sent.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Invalid heading, exclusions or rejoin points
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Queue full or rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal error or downstream failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/search:
     post:
       summary: Forward geocoding (async SSE)

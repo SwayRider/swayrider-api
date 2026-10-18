@@ -28,6 +28,7 @@ type Server struct {
 	auth     *handlers.AuthHandler
 	region   *handlers.RegionHandler
 	route    *handlers.RouteHandler
+	rejoin   *handlers.RejoinHandler
 	search   *handlers.SearchHandler
 	tiles    http.Handler
 	web      http.Handler
@@ -42,6 +43,7 @@ func New(
 	auth *handlers.AuthHandler,
 	region *handlers.RegionHandler,
 	route *handlers.RouteHandler,
+	rejoin *handlers.RejoinHandler,
 	search *handlers.SearchHandler,
 	tiles http.Handler,
 	web http.Handler,
@@ -55,6 +57,7 @@ func New(
 		auth:     auth,
 		region:   region,
 		route:    route,
+		rejoin:   rejoin,
 		search:   search,
 		tiles:    tiles,
 		web:      web,
@@ -76,6 +79,7 @@ func (s *Server) Run(ctx context.Context) {
 		IPAPI:         s.cfg.RateLimitIPAPI,
 		UserAPI:       s.cfg.RateLimitUserAPI,
 		UserExpensive: s.cfg.RateLimitUserExpensive,
+		UserReroute:   s.cfg.RateLimitUserReroute,
 		UserTiles:     s.cfg.RateLimitUserTiles,
 	}
 
