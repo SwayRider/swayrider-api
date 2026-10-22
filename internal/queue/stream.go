@@ -13,7 +13,7 @@ import (
 const (
 	StreamRouting = "sw:jobs:routing"
 	StreamSearch  = "sw:jobs:search"
-	// StreamRerouting carries rejoin jobs (getting back on a route), kept
+	// StreamRerouting carries reroute jobs (a new route after leaving one), kept
 	// apart so they never wait behind route planning.
 	StreamRerouting = "sw:jobs:rerouting"
 	GroupName       = "workers"

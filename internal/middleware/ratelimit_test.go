@@ -130,7 +130,7 @@ func TestEndpointClass(t *testing.T) {
 		{"/api/v1/auth/mfa/backup-codes", "api", true},
 		{"/web/", "api", true},
 		{"/api/v1/route", "expensive", true},
-		{"/api/v1/route/rejoin", "reroute", true},
+		{"/api/v1/route/reroute", "reroute", true},
 		{"/api/v1/search", "expensive", true},
 		{"/api/v1/search/autocomplete", "expensive", true},
 	}
@@ -236,15 +236,15 @@ func TestRateLimitAuthenticatedPerUserClassLimitsPerUser(t *testing.T) {
 		t.Errorf("route limit = %d, want %d (UserExpensive)", call.limit, 20)
 	}
 
-	// Getting back on a route has its own budget and its own key.
+	// A reroute has its own budget and its own key.
 	fl3, h3 := newRateLimitHarness()
-	doRequest(h3, requestWithUser("/api/v1/route/rejoin", "1.2.3.4", "user-123"))
+	doRequest(h3, requestWithUser("/api/v1/route/reroute", "1.2.3.4", "user-123"))
 	call = fl3.lastCall()
 	if call.key != "rl:reroute:user:user-123" {
-		t.Errorf("rejoin key = %q, want %q", call.key, "rl:reroute:user:user-123")
+		t.Errorf("reroute key = %q, want %q", call.key, "rl:reroute:user:user-123")
 	}
 	if call.limit != 12 {
-		t.Errorf("rejoin limit = %d, want %d (UserReroute)", call.limit, 12)
+		t.Errorf("reroute limit = %d, want %d (UserReroute)", call.limit, 12)
 	}
 }
 

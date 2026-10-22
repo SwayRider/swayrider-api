@@ -222,13 +222,3 @@ func jobErrorMessage(code codes.Code) string {
 		return "internal error"
 	}
 }
-
-// RejoinResult is the result of a rejoin job: the way back onto the original
-// route, or a fresh route when rejoining is clearly worse.
-type RejoinResult struct {
-	// Choice is "rejoin" (Trip is the connector to rejoin point RejoinIndex)
-	// or "fresh" (Trip is a fresh route to the remaining stops).
-	Choice      string     `json:"choice"`
-	RejoinIndex int        `json:"rejoin_index"`
-	Trip        TripResult `json:"trip"`
-}

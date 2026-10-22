@@ -28,7 +28,7 @@ type Server struct {
 	auth     *handlers.AuthHandler
 	region   *handlers.RegionHandler
 	route    *handlers.RouteHandler
-	rejoin   *handlers.RejoinHandler
+	reroute  *handlers.RerouteHandler
 	search   *handlers.SearchHandler
 	tiles    http.Handler
 	web      http.Handler
@@ -43,7 +43,7 @@ func New(
 	auth *handlers.AuthHandler,
 	region *handlers.RegionHandler,
 	route *handlers.RouteHandler,
-	rejoin *handlers.RejoinHandler,
+	reroute *handlers.RerouteHandler,
 	search *handlers.SearchHandler,
 	tiles http.Handler,
 	web http.Handler,
@@ -57,7 +57,7 @@ func New(
 		auth:     auth,
 		region:   region,
 		route:    route,
-		rejoin:   rejoin,
+		reroute:  reroute,
 		search:   search,
 		tiles:    tiles,
 		web:      web,

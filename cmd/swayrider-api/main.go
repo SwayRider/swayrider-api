@@ -133,7 +133,7 @@ func main() {
 		Redis:     redisClient,
 		Stream:    queue.StreamRerouting,
 		Count:     cfg.RerouteWorkerCount,
-		Process:   handlers.NewRejoinProcessFn(routerClt, tokenMgr.Token, breakers),
+		Process:   handlers.NewRerouteProcessFn(routerClt, tokenMgr.Token, breakers),
 		ResultTTL: resultTTL,
 		Logger:    lg,
 	})
@@ -153,11 +153,11 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authClt, keyCache, lg)
 	regionHandler := handlers.NewRegionHandler(regionClt, tokenMgr.Token, lg)
 	routeHandler := handlers.NewRouteHandler(producer, hub, lg)
-	rejoinHandler := handlers.NewRejoinHandler(rerouteProducer, hub, lg)
+	rerouteHandler := handlers.NewRerouteHandler(rerouteProducer, hub, lg)
 	searchHandler := handlers.NewSearchHandler(producer, hub, searchClt, tokenMgr.Token, breakers, lg)
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
 	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, cfg.AuthServiceWebPort, cfg.AuthServiceWebPathPrefix)
 
-	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, rejoinHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
+	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, rerouteHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
 	srv.Run(ctx)
 }

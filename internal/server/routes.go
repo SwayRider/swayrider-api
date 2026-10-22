@@ -39,8 +39,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Route (async SSE) — requires verified user
 	mux.Handle("POST /api/v1/route", middleware.RequireVerifiedUser(http.HandlerFunc(s.route.Route)))
 
-	// Rejoin (async SSE) — the way back onto a route, on its own queue lane
-	mux.Handle("POST /api/v1/route/rejoin", middleware.RequireVerifiedUser(http.HandlerFunc(s.rejoin.Rejoin)))
+	// Reroute (async SSE) — a new route after leaving one, on its own queue lane
+	mux.Handle("POST /api/v1/route/reroute", middleware.RequireVerifiedUser(http.HandlerFunc(s.reroute.Reroute)))
 
 	// Search (async SSE) — requires verified user
 	mux.Handle("POST /api/v1/search", middleware.RequireVerifiedUser(http.HandlerFunc(s.search.Search)))
