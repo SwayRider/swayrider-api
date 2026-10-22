@@ -22,7 +22,7 @@ type RateLimitConfig struct {
 	IPAPI         int // per-IP limit for unauthenticated requests to per-user (api/expensive) endpoints
 	UserAPI       int // per-user limit for the api class
 	UserExpensive int // per-user limit for the expensive class (route, search)
-	UserReroute   int // per-user limit for the reroute class (getting back on a route)
+	UserReroute   int // per-user limit for the reroute class (a new route after leaving one)
 	UserTiles     int // per-user limit for the tiles class (map tiles, styles, glyphs, sprites)
 }
 
@@ -123,8 +123,8 @@ func endpointClass(path string) (class string, perUser bool) {
 		// their own generous per-user budget instead of sharing the per-IP public class with
 		// /health. Unauthenticated tile requests fall into the stricter per-IP api budget.
 		return "tiles", true
-	case path == "/api/v1/route/rejoin":
-		// Getting back on a route has its own budget so that a rider who
+	case path == "/api/v1/route/reroute":
+		// A new route after leaving one has its own budget so that a rider who
 		// needs it is not locked out by route planning, and vice versa.
 		return "reroute", true
 	case strings.HasPrefix(path, "/api/v1/route"),

@@ -1140,27 +1140,24 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
 
-  /api/v1/route/rejoin:
+  /api/v1/route/reroute:
     post:
-      summary: Get back onto a route (async SSE)
+      summary: Plan a new route after leaving one (async SSE)
       description: |
-        For a rider who left a planned route: calculates the way back onto it.
-        The request is a route request describing a **fresh route** from the
-        rider's position (`from`, with `fromHeading`) to the remaining stops,
-        plus up to 6 points of the **original route** (`rejoin`). For every
-        point a connector is calculated (leaving in the direction of travel,
-        arriving in the direction of the original route); the best one is
-        returned unless a fresh route is clearly faster.
+        For a rider who left the route they were following: calculates a new
+        route from the rider's position (`from`, with `fromHeading`) through
+        the remaining stops (`waypoints`, `to`). The route prefers the rider's
+        direction of travel and avoids the `exclusions` (e.g. a suspected
+        closure), unless that is much slower than the best route without those
+        constraints (5 minutes by default).
 
-        Rejoin requests have their own queue, workers and rate limit.
+        Reroute requests have their own queue, workers and rate limit.
 
         SSE events:
         - `queued` — `{"job_id":"…","queue_position":N}`
-        - `result` — `{"choice":"rejoin"|"fresh","rejoin_index":N,"trip":{…}}`;
-          for `rejoin` the trip is the connector to `rejoin[rejoin_index]`,
-          for `fresh` it is the fresh route
+        - `result` — Route result with `trip`, `legs`, `maneuvers`, `summary`
         - `error` — `{"error":"…"}`
-      operationId: rejoinRoute
+      operationId: rerouteRoute
       tags: [route]
       security:
         - bearerAuth: []
@@ -1211,26 +1208,7 @@ paths:
                     maxItems: 40
                     items:
                       $ref: '#/components/schemas/LatLon'
-                rejoin:
-                  type: array
-                  maxItems: 6
-                  items:
-                    type: object
-                    properties:
-                      lat:
-                        type: number
-                      lon:
-                        type: number
-                      heading:
-                        type: integer
-                        minimum: 0
-                        maximum: 359
-                        description: Direction of the original route at the point
-                      remainingSeconds:
-                        type: number
-                        description: Travel time left on the original route after the point
-                    required: [lat, lon, heading, remainingSeconds]
-              required: [from, to, vehicle, rejoin]
+              required: [from, to, vehicle]
       responses:
         '200':
           description: SSE stream. Connection stays open until `result` or `error` event is sent.
@@ -1239,7 +1217,7 @@ paths:
               schema:
                 type: string
         '400':
-          description: Invalid heading, exclusions or rejoin points
+          description: Invalid heading or exclusions
           content:
             application/json:
               schema:

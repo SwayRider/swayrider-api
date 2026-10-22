@@ -9,7 +9,6 @@ import (
 	"net/http"
 
 	"github.com/swayrider/grpcclients/routerclient"
-	routerv1 "github.com/swayrider/protos/router/v1"
 	"github.com/swayrider/swayrider-api/internal/queue"
 	"github.com/swayrider/swayrider-api/internal/sse"
 	log "github.com/swayrider/swlib/logger"
@@ -17,16 +16,15 @@ import (
 )
 
 const (
-	maxRejoinPoints         = 6
 	maxExclusionPolygons    = 6
 	maxExclusionPoints      = 40
 	maxExclusionExtentMeter = 2000.0
 )
 
-// RejoinRequest is the JSON body accepted by POST /api/v1/route/rejoin: a
-// normal route request describing the fresh route from the rider's position
-// to the remaining stops, plus the points of the original route to rejoin.
-type RejoinRequest struct {
+// RerouteRequest is the JSON body accepted by POST /api/v1/route/reroute: a
+// normal route request from the rider's position (From) through the remaining
+// stops, plus the rider's direction of travel and areas to avoid.
+type RerouteRequest struct {
 	RouteRequest
 
 	// FromHeading is the rider's direction of travel in degrees clockwise
@@ -38,20 +36,6 @@ type RejoinRequest struct {
 	// Exclusions are areas the route must not pass through (suspected
 	// closures), as rings of lat/lon points.
 	Exclusions [][]RouteCoord `json:"exclusions,omitempty"`
-
-	// Rejoin lists the points of the original route that can be rejoined.
-	Rejoin []RejoinPointRequest `json:"rejoin"`
-}
-
-// RejoinPointRequest is one point of the original route.
-type RejoinPointRequest struct {
-	Lat float64 `json:"lat"`
-	Lon float64 `json:"lon"`
-	// Heading is the direction of the original route at the point.
-	Heading int `json:"heading"`
-	// RemainingSeconds is the travel time left on the original route after
-	// the point.
-	RemainingSeconds float64 `json:"remainingSeconds"`
 }
 
 const defaultFromHeadingTolerance = 45
@@ -61,28 +45,14 @@ func validCoord(c RouteCoord) bool {
 		c.Lat >= -90 && c.Lat <= 90 && c.Lon >= -180 && c.Lon <= 180
 }
 
-// validate checks the rejoin-specific fields. The route fields are
+// validate checks the reroute-specific fields. The route fields are
 // validated downstream by routerservice.
-func (r RejoinRequest) validate() error {
+func (r RerouteRequest) validate() error {
 	if r.FromHeading != nil && (*r.FromHeading < 0 || *r.FromHeading > 359) {
 		return errors.New("fromHeading must be 0-359")
 	}
 	if r.FromHeadingTolerance != nil && (*r.FromHeadingTolerance < 1 || *r.FromHeadingTolerance > 180) {
 		return errors.New("fromHeadingTolerance must be 1-180")
-	}
-	if len(r.Rejoin) > maxRejoinPoints {
-		return fmt.Errorf("at most %d rejoin points", maxRejoinPoints)
-	}
-	for i, p := range r.Rejoin {
-		if !validCoord(RouteCoord{Lat: p.Lat, Lon: p.Lon}) {
-			return fmt.Errorf("rejoin[%d]: invalid coordinate", i)
-		}
-		if p.Heading < 0 || p.Heading > 359 {
-			return fmt.Errorf("rejoin[%d]: heading must be 0-359", i)
-		}
-		if p.RemainingSeconds < 0 || math.IsNaN(p.RemainingSeconds) || math.IsInf(p.RemainingSeconds, 0) {
-			return fmt.Errorf("rejoin[%d]: invalid remainingSeconds", i)
-		}
 	}
 	if len(r.Exclusions) > maxExclusionPolygons {
 		return fmt.Errorf("at most %d exclusions", maxExclusionPolygons)
@@ -116,30 +86,30 @@ func distanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
 	return 2 * earthRadius * math.Asin(math.Min(1, math.Sqrt(h)))
 }
 
-// RejoinHandler handles POST /api/v1/route/rejoin via SSE. Rejoin jobs go to
+// RerouteHandler handles POST /api/v1/route/reroute via SSE. Reroute jobs go to
 // their own stream so they never wait behind route planning.
-type RejoinHandler struct {
+type RerouteHandler struct {
 	producer *queue.Producer
 	hub      *sse.Hub
 	l        *log.Logger
 }
 
-func NewRejoinHandler(producer *queue.Producer, hub *sse.Hub, l *log.Logger) *RejoinHandler {
-	return &RejoinHandler{
+func NewRerouteHandler(producer *queue.Producer, hub *sse.Hub, l *log.Logger) *RerouteHandler {
+	return &RerouteHandler{
 		producer: producer,
 		hub:      hub,
-		l:        l.Derive(log.WithComponent("rejoin")),
+		l:        l.Derive(log.WithComponent("reroute")),
 	}
 }
 
-func (h *RejoinHandler) Rejoin(w http.ResponseWriter, r *http.Request) {
+func (h *RerouteHandler) Reroute(w http.ResponseWriter, r *http.Request) {
 	claims, ok := security.GetClaims(r.Context())
 	if !ok || claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	var req RejoinRequest
+	var req RerouteRequest
 	if !decodeBody(w, r, &req) {
 		return
 	}
@@ -148,14 +118,18 @@ func (h *RejoinHandler) Rejoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	streamJob(w, r, h.producer, h.hub, queue.StreamRerouting, req, claims, h.l.Derive(log.WithFunction("Rejoin")),
-		fmt.Sprintf("from=%.4f,%.4f to=%.4f,%.4f points=%d exclusions=%d",
-			req.From.Lat, req.From.Lon, req.To.Lat, req.To.Lon, len(req.Rejoin), len(req.Exclusions)))
+	heading := "-"
+	if req.FromHeading != nil {
+		heading = fmt.Sprintf("%d", *req.FromHeading)
+	}
+	streamJob(w, r, h.producer, h.hub, queue.StreamRerouting, req, claims, h.l.Derive(log.WithFunction("Reroute")),
+		fmt.Sprintf("from=%.4f,%.4f to=%.4f,%.4f heading=%s exclusions=%d",
+			req.From.Lat, req.From.Lon, req.To.Lat, req.To.Lon, heading, len(req.Exclusions)))
 }
 
 // routeQuery turns the request into the routerclient query for the fresh
 // route.
-func (r RejoinRequest) routeQuery() routerclient.RouteQuery {
+func (r RerouteRequest) routeQuery() routerclient.RouteQuery {
 	query := routerclient.RouteQuery{
 		From:     routerclient.Coordinate{Latitude: r.From.Lat, Longitude: r.From.Lon},
 		To:       routerclient.Coordinate{Latitude: r.To.Lat, Longitude: r.To.Lon},
@@ -197,35 +171,23 @@ func (r RejoinRequest) routeQuery() routerclient.RouteQuery {
 	return query
 }
 
-func (r RejoinRequest) rejoinQuery() routerclient.RejoinQuery {
-	query := routerclient.RejoinQuery{Fresh: r.routeQuery()}
-	for _, p := range r.Rejoin {
-		query.Points = append(query.Points, routerclient.RejoinPoint{
-			Coordinate:       routerclient.Coordinate{Latitude: p.Lat, Longitude: p.Lon},
-			Heading:          p.Heading,
-			RemainingSeconds: p.RemainingSeconds,
-		})
-	}
-	return query
-}
-
-// NewRejoinProcessFn returns the worker ProcessFn for rejoin jobs.
-func NewRejoinProcessFn(client *routerclient.Client, token func() string, breaker BreakerExecutor) queue.ProcessFn {
+// NewRerouteProcessFn returns the worker ProcessFn for reroute jobs.
+func NewRerouteProcessFn(client *routerclient.Client, token func() string, breaker BreakerExecutor) queue.ProcessFn {
 	return func(ctx context.Context, job queue.Job) (json.RawMessage, error) {
-		var req RejoinRequest
+		var req RerouteRequest
 		if err := json.Unmarshal([]byte(job.Payload), &req); err != nil {
 			return nil, err
 		}
 
 		userCtx := queue.UserMetadataCtx(ctx, job)
 
-		var result queue.RejoinResult
+		var result queue.RouteResult
 		err := breaker.Execute("routerservice", func() error {
-			resp, err := client.RejoinRaw(userCtx, token(), req.rejoinQuery())
+			resp, err := client.RerouteRaw(userCtx, token(), req.routeQuery())
 			if err != nil {
 				return err
 			}
-			result = toRejoinResult(resp)
+			result = toRouteResult(resp.Trip)
 			return nil
 		})
 		if err != nil {
@@ -233,16 +195,4 @@ func NewRejoinProcessFn(client *routerclient.Client, token func() string, breake
 		}
 		return json.Marshal(result)
 	}
-}
-
-func toRejoinResult(resp *routerv1.RejoinResponse) queue.RejoinResult {
-	result := queue.RejoinResult{
-		Choice: "fresh",
-		Trip:   toTripResult(resp.Trip),
-	}
-	if resp.Kind == routerv1.RejoinKind_RJ_REJOIN {
-		result.Choice = "rejoin"
-		result.RejoinIndex = int(resp.RejoinIndex)
-	}
-	return result
 }

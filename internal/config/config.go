@@ -35,7 +35,7 @@ type Config struct {
 	ClientSecret string
 
 	RouteWorkerCount  int
-	// Rejoin (getting back on a route) has its own stream and workers.
+	// Reroute (a new route after leaving one) has its own stream and workers.
 	RerouteWorkerCount   int
 	RerouteQueueMaxDepth int
 	SearchWorkerCount int
