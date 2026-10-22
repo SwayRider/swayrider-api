@@ -35,6 +35,9 @@ type Config struct {
 	ClientSecret string
 
 	RouteWorkerCount  int
+	// Rejoin (getting back on a route) has its own stream and workers.
+	RerouteWorkerCount   int
+	RerouteQueueMaxDepth int
 	SearchWorkerCount int
 	QueueMaxDepth     int
 	ResultTTLSeconds  int
@@ -44,6 +47,7 @@ type Config struct {
 	RateLimitIPAPI         int
 	RateLimitUserAPI       int
 	RateLimitUserExpensive int
+	RateLimitUserReroute   int
 	RateLimitUserTiles     int
 
 	// Rate limit Redis-degradation behavior.
@@ -108,6 +112,8 @@ func Load() *Config {
 		ClientSecret: env.Get("SWAYRIDER_API_CLIENT_SECRET", ""),
 
 		RouteWorkerCount:  env.GetAsInt("ROUTE_WORKER_COUNT", 5),
+		RerouteWorkerCount:   env.GetAsInt("REROUTE_WORKERS", 2),
+		RerouteQueueMaxDepth: env.GetAsInt("REROUTE_QUEUE_MAX_DEPTH", 100),
 		SearchWorkerCount: env.GetAsInt("SEARCH_WORKER_COUNT", 10),
 		QueueMaxDepth:     env.GetAsInt("QUEUE_MAX_DEPTH", 500),
 		ResultTTLSeconds:  env.GetAsInt("RESULT_TTL_SECONDS", 300),
@@ -117,6 +123,7 @@ func Load() *Config {
 		RateLimitIPAPI:         env.GetAsInt("RATE_LIMIT_IP_API", 60),
 		RateLimitUserAPI:       env.GetAsInt("RATE_LIMIT_USER_API", 300),
 		RateLimitUserExpensive: env.GetAsInt("RATE_LIMIT_USER_EXPENSIVE", 20),
+		RateLimitUserReroute:   env.GetAsInt("RATE_LIMIT_USER_REROUTE", 12),
 		RateLimitUserTiles:     env.GetAsInt("RATE_LIMIT_USER_TILES", 3000),
 
 		RateLimitDegradeMode:      env.Get("RATE_LIMIT_DEGRADE_MODE", "memory"),

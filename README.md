@@ -131,6 +131,7 @@ Both refresh loops (service token, JWT public keys) bound every fetch attempt wi
 | `RATE_LIMIT_IP_API` | `60` | Requests/min per IP on unauthenticated requests to per-user endpoints (refresh, logout, reset-password, check-password-strength, and floods aimed at protected endpoints) |
 | `RATE_LIMIT_USER_API` | `300` | Requests/min per user on general authenticated endpoints |
 | `RATE_LIMIT_USER_EXPENSIVE` | `20` | Requests/min per user on route and search endpoints |
+| `RATE_LIMIT_USER_REROUTE` | `12` | Requests/min per user on `/api/v1/route/rejoin` (getting back on a route), separate from the route budget |
 | `RATE_LIMIT_USER_TILES` | `3000` | Requests/min per user on map traffic under `/v1/tiles/` (tiles, styles, glyphs, sprites). One map view is dozens of requests; tile requests without a token fall under `RATE_LIMIT_IP_API` |
 | `RATE_LIMIT_DEGRADE_MODE` | `memory` | Behavior when Redis is unreachable: `memory` (in-process fallback with same limits, per instance) or `deny` (fail closed, 429 everything) |
 | `RATE_LIMIT_DEGRADE_THRESHOLD` | `3` | Consecutive Redis failures before the limiter degrades (fail-open below this) |
@@ -143,6 +144,8 @@ When Redis is down, the rate limiter **does not silently disable throttling** (i
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ROUTE_WORKER_COUNT` | `5` | Goroutines draining the routing stream |
+| `REROUTE_WORKERS` | `2` | Goroutines draining the rerouting stream (`/api/v1/route/rejoin`) |
+| `REROUTE_QUEUE_MAX_DEPTH` | `100` | Max pending messages on the rerouting stream |
 | `SEARCH_WORKER_COUNT` | `10` | Goroutines draining the search stream |
 | `QUEUE_MAX_DEPTH` | `500` | Max pending messages across routing/search streams combined |
 | `RESULT_TTL_SECONDS` | `300` | How long (seconds) completed job results are kept in Redis |
@@ -234,6 +237,7 @@ The gateway proxies these endpoints to authservice over gRPC. On login, register
 | `/api/v1/auth/mfa/backup-codes` | POST | Access token | Regenerate backup codes (requires password) |
 | `/api/v1/region/*` | POST | **Access token** | All region endpoints require user JWT |
 | `/api/v1/route` | POST | **Access token** | SSE streaming |
+| `/api/v1/route/rejoin` | POST | **Access token** | SSE streaming; the way back onto a route (own queue and rate limit) |
 | `/api/v1/search` | POST | **Access token** | SSE streaming |
 | `/api/v1/search/reverse` | POST | **Access token** | SSE streaming |
 | `/api/v1/search/autocomplete` | POST | **Access token** | SSE streaming |
