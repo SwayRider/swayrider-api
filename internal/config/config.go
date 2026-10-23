@@ -68,6 +68,10 @@ type Config struct {
 	// arbitrarily large JSON body can't exhaust memory.
 	MaxBodyBytes int64
 
+	// ExtensionRoutesFile is a YAML file of extra proxied routes (see package
+	// extension). Empty disables the feature.
+	ExtensionRoutesFile string
+
 	// ServiceTokenRefreshTimeout hard-bounds a single service-token refresh
 	// attempt so a stuck gRPC call can never wedge the background refresh
 	// loop (and with it every downstream call).
@@ -137,6 +141,8 @@ func Load() *Config {
 		CookieNamespace: env.Get("COOKIE_NAMESPACE", "com.hevanto-it.swayrider"),
 
 		MaxBodyBytes: int64(env.GetAsInt("MAX_BODY_BYTES", 1048576)), // 1 MiB
+
+		ExtensionRoutesFile: env.Get("EXTENSION_ROUTES_FILE", ""),
 
 		ServiceTokenRefreshTimeout: time.Duration(env.GetAsInt("SERVICE_TOKEN_REFRESH_TIMEOUT", 15)) * time.Second,
 		JWTKeysFetchTimeout:        time.Duration(env.GetAsInt("JWT_KEYS_REFRESH_TIMEOUT", 15)) * time.Second,

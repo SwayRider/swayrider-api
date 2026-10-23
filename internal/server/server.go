@@ -15,6 +15,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
+	"github.com/swayrider/swayrider-api/internal/extension"
 	"github.com/swayrider/swayrider-api/internal/handlers"
 	"github.com/swayrider/swayrider-api/internal/middleware"
 	"github.com/swayrider/swayrider-api/internal/ratelimit"
@@ -35,6 +36,7 @@ type Server struct {
 	keyCache *jwtkeys.Cache
 	limiter  *ratelimit.Limiter
 	breakers *circuitbreaker.Registry
+	ext      *extension.Set
 }
 
 func New(
@@ -67,11 +69,24 @@ func New(
 	}
 }
 
+// WithExtensions adds the operator-configured extension routes. A nil set
+// leaves the gateway exactly as it is.
+func (s *Server) WithExtensions(ext *extension.Set) *Server {
+	s.ext = ext
+	return s
+}
+
 func (s *Server) Run(ctx context.Context) {
 	lg := s.l.Derive(log.WithFunction("Run"))
 
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
+	if err := s.ext.Register(mux); err != nil {
+		lg.Fatalf("invalid extension routes: %v", err)
+	}
+	for _, line := range s.ext.Describe() {
+		lg.Infof("extension route: %s", line)
+	}
 
 	rateCfg := middleware.RateLimitConfig{
 		IPAuth:        s.cfg.RateLimitIPAuth,
@@ -81,13 +96,14 @@ func (s *Server) Run(ctx context.Context) {
 		UserExpensive: s.cfg.RateLimitUserExpensive,
 		UserReroute:   s.cfg.RateLimitUserReroute,
 		UserTiles:     s.cfg.RateLimitUserTiles,
+		Extension:     s.ext.RateClass,
 	}
 
 	// Middleware chain (innermost first): mux → bodyLimit → rateLimit → logging → auth → cors
 	handler := middleware.Auth(s.keyCache, parseTrustedProxies(s.cfg.TrustedProxies, lg))(
 		middleware.Logging(s.l)(
 			middleware.RateLimit(s.limiter, rateCfg, s.l)(
-				middleware.BodyLimit(s.cfg.MaxBodyBytes)(mux),
+				middleware.BodyLimitWith(s.cfg.MaxBodyBytes, s.ext.BodyLimit)(mux),
 			),
 		),
 	)

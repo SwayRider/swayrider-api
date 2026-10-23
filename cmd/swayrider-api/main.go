@@ -13,6 +13,7 @@ import (
 	"github.com/swayrider/grpcclients/searchclient"
 	"github.com/swayrider/swayrider-api/internal/circuitbreaker"
 	"github.com/swayrider/swayrider-api/internal/config"
+	"github.com/swayrider/swayrider-api/internal/extension"
 	"github.com/swayrider/swayrider-api/internal/handlers"
 	"github.com/swayrider/swayrider-api/internal/queue"
 	"github.com/swayrider/swayrider-api/internal/ratelimit"
@@ -106,7 +107,23 @@ func main() {
 		ProbeInterval:    time.Duration(cfg.RateLimitProbeSeconds) * time.Second,
 		Logger:           lg,
 	})
-	breakers := circuitbreaker.New([]string{"authservice", "routerservice", "searchservice", "regionservice"}, lg)
+	var extRoutes []extension.Route
+	if cfg.ExtensionRoutesFile != "" {
+		var err error
+		extRoutes, err = extension.Load(cfg.ExtensionRoutesFile)
+		if err != nil {
+			lg.Fatalf("%v", err)
+		}
+	}
+	breakerNames := []string{"authservice", "routerservice", "searchservice", "regionservice"}
+	for _, r := range extRoutes {
+		breakerNames = append(breakerNames, r.Name)
+	}
+	breakers := circuitbreaker.New(breakerNames, lg)
+	extSet, err := extension.NewSet(extRoutes, breakers)
+	if err != nil {
+		lg.Fatalf("%v", err)
+	}
 
 	// Queue producer + consumer group bootstrap
 	producer := queue.NewProducer(redisClient, cfg.QueueMaxDepth)
@@ -158,6 +175,6 @@ func main() {
 	tilesProxy := handlers.NewTilesProxy(cfg.TilesServiceHost, cfg.TilesServicePort, tokenMgr.Token)
 	webProxy := handlers.NewWebProxy(cfg.AuthServiceHost, cfg.AuthServiceWebPort, cfg.AuthServiceWebPathPrefix)
 
-	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, rerouteHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers)
+	srv := server.New(cfg, lg, authHandler, regionHandler, routeHandler, rerouteHandler, searchHandler, tilesProxy, webProxy, keyCache, limiter, breakers).WithExtensions(extSet)
 	srv.Run(ctx)
 }
