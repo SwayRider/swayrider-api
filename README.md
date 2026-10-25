@@ -160,7 +160,35 @@ When Redis is down, the rate limiter **does not silently disable throttling** (i
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_BODY_BYTES` | `1048576` (1 MiB) | Maximum request body size. Larger bodies are rejected with `413 Payload Too Large` before they can be read into memory |
+| `MAX_BODY_BYTES` | `1048576` (1 MiB) | Maximum request body size. Larger bodies are rejected with `413 Payload Too Large` before they can be read into memory. An [extension route](#extension-routes) can set its own limit |
+
+### Extension routes
+
+An operator can add proxied routes to the gateway without changing its code. Point `EXTENSION_ROUTES_FILE` (default empty) at a YAML file; when the variable is unset the feature is off and the gateway behaves exactly as before.
+
+```yaml
+routes:
+  - name: example-addon          # label for logs; also names the rate-limit class and circuit breaker
+    path: /api/v1/example        # exact path; a trailing "/" makes it a prefix. Passed to the upstream unchanged
+    methods: [POST]              # GET, POST, PUT, DELETE
+    upstream: http://example:8080
+    auth: user                   # none | user (signed in, verified email) | admin
+    forward_authorization: true  # pass the caller's verified bearer token to the upstream
+    max_body_bytes: 10485760     # replaces MAX_BODY_BYTES for this route only
+    timeout: 60s                 # whole request, default 30s
+    rate_limit:
+      user_per_min: 10           # signed-in callers, per user (not needed for auth: none)
+      ip_per_min: 20             # anonymous callers, per IP
+```
+
+What the gateway does for an extension route, as for its own endpoints:
+
+- authenticates the caller at the configured level and rejects the rest with 401/403;
+- applies the route's own rate limit and body-size limit (413 above it);
+- opens a circuit breaker after repeated upstream failures (503 while open); an unreachable upstream is 502 and a slow one 504;
+- drops the caller's cookies and any `X-SwayRider-*`, `X-Forwarded-User`, `X-Auth-*`, `X-User-Id` or `X-Remote-User` request header, so an upstream learns who the caller is only from the verified bearer token (when `forward_authorization` is on), never from something the client typed.
+
+The file is checked at startup and the gateway refuses to start if a route is invalid: paths must be under `/api/v1/` and may not use the gateway's own prefixes (`/api/v1/auth`, `/route`, `/search`, `/region`), upstreams must be `http(s)://host[:port]` without a path, and limits must be set. Routes are not part of the OpenAPI document; the operator documents them where the upstream lives.
 
 ### CORS
 

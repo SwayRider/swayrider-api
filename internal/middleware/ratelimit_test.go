@@ -363,3 +363,78 @@ func TestRateLimitTilesDeniedReturns429(t *testing.T) {
 		t.Fatalf("status %d Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 }
+
+func newExtensionHarness(class ExtensionClass) (*fakeLimiter, http.Handler) {
+	fl := &fakeLimiter{allow: true}
+	cfg := RateLimitConfig{
+		IPAPI:   60,
+		UserAPI: 300,
+		Extension: func(r *http.Request) (ExtensionClass, bool) {
+			if r.URL.Path == "/api/v1/example" {
+				return class, true
+			}
+			return ExtensionClass{}, false
+		},
+	}
+	h := RateLimit(fl, cfg, log.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	return fl, h
+}
+
+func TestRateLimitExtensionClassLimitsPerUser(t *testing.T) {
+	fl, h := newExtensionHarness(ExtensionClass{Name: "example", UserPerMin: 7, IPPerMin: 3})
+
+	rec := doRequest(h, requestWithUser("/api/v1/example", "203.0.113.1", "user-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	call := fl.lastCall()
+	if call.key != "rl:ext:example:user:user-1" || call.limit != 7 {
+		t.Errorf("call = %+v, want its own per-user key and limit", call)
+	}
+}
+
+func TestRateLimitExtensionClassLimitsAnonymousPerIP(t *testing.T) {
+	fl, h := newExtensionHarness(ExtensionClass{Name: "example", UserPerMin: 7, IPPerMin: 3})
+
+	doRequest(h, requestWithIP("/api/v1/example", "203.0.113.1"))
+
+	call := fl.lastCall()
+	if call.key != "rl:ext:example:ip:203.0.113.1" || call.limit != 3 {
+		t.Errorf("call = %+v, want per-IP key and limit", call)
+	}
+}
+
+func TestRateLimitExtensionClassPerIPOnly(t *testing.T) {
+	fl, h := newExtensionHarness(ExtensionClass{Name: "example", IPPerMin: 3, PerIPOnly: true})
+
+	doRequest(h, requestWithUser("/api/v1/example", "203.0.113.1", "user-1"))
+
+	call := fl.lastCall()
+	if call.key != "rl:ext:example:ip:203.0.113.1" || call.limit != 3 {
+		t.Errorf("call = %+v, want per-IP even when signed in", call)
+	}
+}
+
+func TestRateLimitExtensionClassBlocksOverLimit(t *testing.T) {
+	fl, h := newExtensionHarness(ExtensionClass{Name: "example", UserPerMin: 7, IPPerMin: 3})
+	fl.allow = false
+
+	rec := doRequest(h, requestWithUser("/api/v1/example", "203.0.113.1", "user-1"))
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+}
+
+func TestRateLimitNonExtensionPathsKeepTheirClass(t *testing.T) {
+	fl, h := newExtensionHarness(ExtensionClass{Name: "example", UserPerMin: 7, IPPerMin: 3})
+
+	doRequest(h, requestWithUser("/api/v1/route", "203.0.113.1", "user-1"))
+
+	if call := fl.lastCall(); call.key != "rl:expensive:user:user-1" {
+		t.Errorf("key = %q, want the built-in expensive class", call.key)
+	}
+}

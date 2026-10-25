@@ -72,3 +72,39 @@ func TestBodyLimit_ZeroDisablesLimit(t *testing.T) {
 		t.Fatalf("status = %d, want %d (limit disabled)", rec.Code, http.StatusOK)
 	}
 }
+
+func TestBodyLimitWith_OverrideRaisesTheLimitForMatchingRequests(t *testing.T) {
+	override := func(r *http.Request) (int64, bool) {
+		if r.URL.Path == "/api/v1/big" {
+			return 8192, true
+		}
+		return 0, false
+	}
+	h := BodyLimitWith(1024, override)(http.HandlerFunc(readAllHandler))
+
+	big := httptest.NewRequest(http.MethodPost, "/api/v1/big", strings.NewReader(strings.Repeat("x", 4096)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, big)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("overridden path: status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	other := httptest.NewRequest(http.MethodPost, "/api/v1/other", strings.NewReader(strings.Repeat("x", 4096)))
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, other)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("other path: status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestBodyLimitWith_OverrideStillBoundsTheBody(t *testing.T) {
+	h := BodyLimitWith(1024, func(*http.Request) (int64, bool) { return 2048, true })(http.HandlerFunc(readAllHandler))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/big", strings.NewReader(strings.Repeat("x", 4096)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}

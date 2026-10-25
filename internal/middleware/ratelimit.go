@@ -16,7 +16,21 @@ type RateLimiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error)
 }
 
+// ExtensionClass is the rate-limit class of an extension route: its own name
+// and budgets, separate from every built-in class.
+type ExtensionClass struct {
+	Name       string
+	UserPerMin int  // per signed-in user
+	IPPerMin   int  // per IP, for callers that are not signed in
+	PerIPOnly  bool // always count per IP, whether or not the caller is signed in
+}
+
 type RateLimitConfig struct {
+	// Extension, when set, is asked first whether a request belongs to an
+	// extension route; such requests use that route's class instead of the
+	// built-in ones.
+	Extension func(*http.Request) (ExtensionClass, bool)
+
 	IPAuth        int // per-IP limit for the auth class (login, register, password flows)
 	IPPublic      int // per-IP limit for the public class (health, public-keys)
 	IPAPI         int // per-IP limit for unauthenticated requests to per-user (api/expensive) endpoints
@@ -48,7 +62,20 @@ func RateLimit(limiter RateLimiter, cfg RateLimitConfig, l *log.Logger) func(htt
 			var allowed bool
 			var err error
 
+			var ext ExtensionClass
+			isExt := false
+			if cfg.Extension != nil {
+				ext, isExt = cfg.Extension(r)
+			}
+
 			switch {
+			case isExt:
+				class = "ext:" + ext.Name
+				if authed && !ext.PerIPOnly {
+					allowed, err = limiter.Allow(ctx, fmt.Sprintf("rl:%s:user:%s", class, claims.Subject), ext.UserPerMin, time.Minute)
+				} else {
+					allowed, err = limiter.Allow(ctx, fmt.Sprintf("rl:%s:ip:%s", class, ip), ext.IPPerMin, time.Minute)
+				}
 			case class == "auth":
 				allowed, err = limiter.Allow(ctx, fmt.Sprintf("rl:auth:ip:%s", ip), cfg.IPAuth, time.Minute)
 			case class == "public":
