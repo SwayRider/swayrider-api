@@ -50,6 +50,8 @@ github.com/swayrider/grpcclients v0.2.1-0.20261022193226-64e54839000d h1:G3HG4aA
 github.com/swayrider/grpcclients v0.2.1-0.20261022193226-64e54839000d/go.mod h1:Y3600HNsogSn8B4C3YMTzzaJcQYh5wbBjCmmDXb6gCQ=
 github.com/swayrider/protos v0.2.1-0.20261022184342-1c42b223b738 h1:43L4GUZzSQ/xpCKUKTQEmsdEXVD2sgcWEY89ZQDjl/A=
 github.com/swayrider/protos v0.2.1-0.20261022184342-1c42b223b738/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
+github.com/swayrider/protos v0.2.1-0.20261102151200-4d3295d04d63 h1:yTxMSj87TrlQHQUItsmXlAWO95yQhlIQfaYTx5uoJ+8=
+github.com/swayrider/protos v0.2.1-0.20261102151200-4d3295d04d63/go.mod h1:e5VCOSgkeRKptyLYV0l351sdHpuzhnpN81UZT8LOXRg=
 github.com/swayrider/swlib v0.1.10 h1:0lolzEzVjKRaU7BTEgm5Xq0bhgAD1JmsCfT5R6EHNhY=
 github.com/swayrider/swlib v0.1.10/go.mod h1:i4OrDBXB9hREl428e07gvfAcRUCvi6ccSKRzdey46Aw=
 github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=

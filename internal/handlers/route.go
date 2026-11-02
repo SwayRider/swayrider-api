@@ -312,6 +312,8 @@ func toManeuverResult(m *routerv1.Maneuver) queue.ManeuverResult {
 	if m.Sign != nil {
 		r.Sign = toSignResult(m.Sign)
 	}
+	r.RoundaboutExitAngles = toInts(m.RoundaboutExitAngles)
+	r.RoundaboutEntryAngles = toInts(m.RoundaboutEntryAngles)
 	switch m.TravelMode {
 	case routerv1.TravelMode_TM_PEDESTRIAN:
 		r.TravelMode = "pedestrian"
@@ -422,4 +424,15 @@ func writeSSEEvent(w http.ResponseWriter, event, data string) {
 // BreakerExecutor is satisfied by *circuitbreaker.Registry.
 type BreakerExecutor interface {
 	Execute(name string, fn func() error) error
+}
+
+func toInts(values []int32) []int {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]int, len(values))
+	for i, v := range values {
+		out[i] = int(v)
+	}
+	return out
 }
