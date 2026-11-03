@@ -107,6 +107,11 @@ type ManeuverResult struct {
 	BearingBefore                      int                `json:"bearing_before"`
 	BearingAfter                       int                `json:"bearing_after"`
 	Lanes                              []TurnLaneResult   `json:"lanes,omitempty"`
+	// Arms of a roundabout, in degrees clockwise from the direction of entry.
+	// Exits are in the order the roundabout is passed; entry-only roads can
+	// only be driven into it. Both are left out when the arms are not known.
+	RoundaboutExitAngles               []int              `json:"roundabout_exit_angles,omitempty"`
+	RoundaboutEntryAngles              []int              `json:"roundabout_entry_angles,omitempty"`
 }
 
 type SummaryResult struct {
